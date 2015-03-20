@@ -6,6 +6,11 @@
 #include <stdio.h>
 #include "csapp.h"
 #include <pthread.h>
+ #include <string.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <arpa/inet.h>
+#include <unistd.h>
 #include <openssl/sha.h>
 
 #define   FILTER_FILE   "chord.filter"
@@ -14,6 +19,8 @@
 #define   MAX_RING_SIZE 100
 #define   KEY_SIZE      32
 #define   KEY_SPACE     32
+#define   MAX_MSG_LENGTH 512
+#define   MAX_BACK_LOG  512
 
 typedef struct Finger
 {
@@ -56,14 +63,16 @@ typedef struct ChordRing
  *============================================================*/
 
 void initialize_chord(int port);
-void add_new_node(char *ip_address, char *port);
+void add_new_node(char *ip_address, char *port_str);
 void receive_client(void *args);
+int server(uint16_t port);
+int client(const char * addr, uint16_t port);
 
 int ring_size;
 
 int main(int argc, char *argv[])
 { 
-  int chord_port;
+  int chord_port, node_port;
   unsigned char hash[SHA_DIGEST_LENGTH];
 
   if (argc == 2) {
@@ -71,6 +80,7 @@ int main(int argc, char *argv[])
     initialize_chord(chord_port);
   } else if (argc == 4) {
     chord_port = atoi(argv[1]);
+    node_port = atoi(argv[3]);
     add_new_node(argv[2], argv[3]);
   } else {
     printf("Usage: %s port [nodeAddress nodePort]\n", argv[0]);
@@ -121,23 +131,15 @@ void initialize_chord(int port) {
 
 void receive_client(void *args) {
   int numBytes, lineNum, serverfd, clientfd, serverPort;
-  int numBytes1, numBytes2;
-  int tries;
   int byteCount = 0;
   char buf1[MAXLINE], buf2[MAXLINE], buf3[MAXLINE];
-  char host[MAXLINE];
-  char url[MAXLINE], logString[MAXLINE];
-  char *token, *cmd, *version, *file, *saveptr;
   rio_t server, client;
-  char slash[10];
-  strcpy(slash, "/");
   
   clientfd = ((int*)args)[0];
   serverPort = ((int*)args)[1];
   free(args);
 
   char request[MAXLINE];
-  char buf[MAXLINE];
 
   /* Read first line of request */
   Rio_readinitb(&client, clientfd);
@@ -146,27 +148,18 @@ void receive_client(void *args) {
   if (numBytes <= 0) {
     printf("No request received\n");
   }
+  printf("Request: %s\n", request);
 
-  printf("Request: %s", request);
-
-  char *uri;
-  char target_address[MAXLINE];
-  char path[MAXLINE];
-  int *port = &serverPort;
-  char request_copy[MAXLINE];
-
-  int *keep_alive = malloc(sizeof(int *));
-  *keep_alive = 0;
-
-  /* Create separate variables for URI */
-  strcpy(request_copy, request);
-  uri = strchr(request, ' ');
-  ++uri;
-  strtok_r(uri, " ", &saveptr);
-  printf("URI %s\n", uri);
-
+  // while (Rio_readlineb(&client, buf1, MAXLINE) > 0) {
+  //   printf("%s\n", buf1);
+  // }
 
   /* Check if query or node connection */
+
+  /* new node */
+  if (strncmp(request, "new", 3) == 0) {
+    
+  }
 }
 
 void node_process() {
@@ -187,21 +180,45 @@ void add_new_node(char *ip_address, char *port_str) {
   unsigned char hash[SHA_DIGEST_LENGTH];
   strcat(data, ip_address);
   strcat(data, ":");
-  strcat(data, port);
+  strcat(data, port_str);
   SHA1(data, sizeof(data), hash);
   printf("%s\n", data);
   printf("%s\n", hash);
-
   memcpy(&key, &hash + 16, sizeof(key));
   printf("%d\n", key);
 
   printf("Joining the Chord ring...\n");
 
-  serverfd = Open_clientfd(ip_address, port);
+  int sock;
+  struct sockaddr_in server_addr;
+
+  if ((sock = socket(AF_INET, SOCK_STREAM/* use tcp */, 0)) < 0) {
+    perror("Create socket error:");
+  }
+
+  printf("Socket created\n");
+  server_addr.sin_addr.s_addr = inet_addr(ip_address);
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_port = htons(port);
+
+  if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+    perror("Connect error:");
+  }
+  printf("Connected to server %s:%d\n", ip_address, port);
+
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "new");
-  send(serverfd, request_string, MAXLINE, 0);
+  printf("%s\n", request_string);
+  if (send(sock, request_string, MAX_MSG_LENGTH, 0) < 0) {
+    perror("Send error:");
+  }
+  // while (1) {
+  //   printf("%s", request_string);
+  //   if (send(sock, request_string, MAXLINE, 0) < 0) {
+  //     perror("Send error");
+  //   }
+  // }
 
   // Add successor/predecessor
   // Node *head = null;
