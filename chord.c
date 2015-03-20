@@ -18,9 +18,10 @@
 #define   DEBUG_FILE    "chord.debug"
 #define   MAX_RING_SIZE 100
 #define   KEY_SIZE      32
-#define   KEY_SPACE     32
+#define   KEY_SPACE     4294967296
 #define   MAX_MSG_LENGTH 512
 #define   MAX_BACK_LOG  512
+#define   LOCAL_IP_ADDRESS "127.0.0.1" 
 
 typedef struct Finger
 {
@@ -67,8 +68,10 @@ void add_new_node(char *ip_address, char *port_str);
 void receive_client(void *args);
 int server(uint16_t port);
 int client(const char * addr, uint16_t port);
+uint32_t find_successor(int id);
 
 int ring_size;
+int finger_table[KEY_SIZE];
 
 int main(int argc, char *argv[])
 { 
@@ -99,20 +102,13 @@ void initialize_chord(int port) {
   setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (const void*)&optval, sizeof(int));
   printf("Listening on port %d\n", port);
 
-  Node *first;
-  Node *last;
-  Node *node_array[MAX_RING_SIZE];
-
   while(1) {
-
     printf("New client\n");
     clientlen = sizeof(clientaddr); //struct sockaddr_in
 
     /* accept a new connection from a client here */
     connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
     printf("Connected to client\n");
-    // printf("Addr: %d", clientaddr)
-    // serverPort = 80; // Default port
 
     pthread_t thread;
 
@@ -158,6 +154,29 @@ void receive_client(void *args) {
 
   /* new node */
   if (strncmp(request, "new", 3) == 0) {
+    uint32_t key = 0;
+    key = (uint32_t) atoi(request+3);
+    printf("Key: %u\n", key);
+
+    /* Find out immediate successors/predecessors */
+
+    uint32_t fingers[KEY_SIZE];
+    /* Lookup fingers of new node */
+    int i = 0;
+    int product = 1;
+    /* n+2^i where i = 0..<m */
+    for (i = 0; i < KEY_SIZE; i++) {
+      fingers[i] = find_successor( (key + product) % KEY_SPACE );
+      if (i > 0 && fingers[i] != fingers[i-1]) {
+        update_node(fingers[i]);
+      }
+      product = product * 2;
+      printf("finger %d: %u\n", i, fingers[i]);
+    }
+  }
+
+  /* finger table request */
+  if (strncmp(request, "table", 5) == 0) {
     
   }
 }
@@ -171,7 +190,7 @@ void node_listen() {
 }
 
 void add_new_node(char *ip_address, char *port_str) {
-  uint32_t key;
+  uint32_t key = 0;
   int port = atoi(port_str);
   int serverfd;
 
@@ -184,8 +203,8 @@ void add_new_node(char *ip_address, char *port_str) {
   SHA1(data, sizeof(data), hash);
   printf("%s\n", data);
   printf("%s\n", hash);
-  memcpy(&key, &hash + 16, sizeof(key));
-  printf("%d\n", key);
+  memcpy(&key, hash + 16, sizeof(key));
+  printf("%u\n", key);
 
   printf("Joining the Chord ring...\n");
 
@@ -209,10 +228,13 @@ void add_new_node(char *ip_address, char *port_str) {
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "new");
+  sprintf(request_string+3, "%u\0", key);
+
   printf("%s\n", request_string);
   if (send(sock, request_string, MAX_MSG_LENGTH, 0) < 0) {
     perror("Send error:");
   }
+
   // while (1) {
   //   printf("%s", request_string);
   //   if (send(sock, request_string, MAXLINE, 0) < 0) {
@@ -228,11 +250,27 @@ void add_new_node(char *ip_address, char *port_str) {
 
 }
 
-int find_successor(int id, int *table) {
+uint32_t find_successor(int key) {
+  uint32_t table[] = finger_table;
+
+  while (table [0] < key) {
+    int i = 0;
+    while (table[i] < key) {
+      i++;
+    }
+    i--;
+    uint32_t node = finger[i];
+    fetch_table(finger, &table);
+  }
+
+  return table[0];
+}
+
+uint32_t find_prececessor(int key, int *table) {
 
 }
 
-int find_prececessor(int id, int *table) {
+void update_node(int key) {
 
 }
 
