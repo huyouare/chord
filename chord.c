@@ -112,7 +112,7 @@ void add_new_node(char *ip_address, char *port) {
   printf("%s\n", hash);
 
   uint32_t key;
-  memcpy(&key, &hash, sizeof(key));
+  memcpy(&key, &hash + 16, sizeof(key));
   printf("%d\n", key);
 }
 
