@@ -63,6 +63,8 @@ Node find_prececessor(uint32_t key);
 Node closest_preceding_finger(uint32_t key);
 bool is_between(uint32_t key, uint32_t a, uint32_t b);
 
+Node fetch_successor(Node n);
+Node fetch_predecessor(Node n);
 Node query_successor(uint32_t key, Node n);
 Node query_predecessor(uint32_t key, Node n);
 Node query_closest_preceding_finger(uint32_t key, Node n);
@@ -341,8 +343,6 @@ void add_new_node(char *ip_address, int port, int node_port) {
   fetch_node.port = node_port;
   fetch_node.key = key;
 
-  self_predecessor = query_predecessor(key, fetch_node);
-  print_node(self_predecessor);
   self_successor = query_successor(key, fetch_node);
   print_node(self_successor);
 
@@ -368,7 +368,8 @@ void add_new_node(char *ip_address, int port, int node_port) {
 }
 
 Node find_successor(uint32_t key) {
-  return find_prececessor(key);
+  Node n = find_prececessor(key);
+  return fetch
 }
 
 Node find_prececessor(uint32_t key) {
@@ -379,7 +380,7 @@ Node find_prececessor(uint32_t key) {
   Node suc = self_successor;
   while (!is_between(key, n.key, suc.key)) {
     n = query_closest_preceding_finger(key, n);
-    // suc = n;
+    suc = 
   }
 }
 
@@ -410,6 +411,20 @@ bool is_between(uint32_t key, uint32_t a, uint32_t b) {
     }
   }
   return false;
+}
+
+Node fetch_successor(Node n) {
+  char request_string[MAXLINE];
+  request_string[0] = 0;
+  strcat(request_string, "fetch_suc");
+  return send_request(n, &request_string);
+}
+
+Node fetch_predecessor(Node n) {
+  char request_string[MAXLINE];
+  request_string[0] = 0;
+  strcat(request_string, "fetch_pre");
+  return send_request(n, &request_string);
 }
 
 Node query_predecessor(uint32_t key, Node n) {
