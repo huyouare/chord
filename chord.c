@@ -25,28 +25,12 @@
 #define   MAX_BACK_LOG  512
 #define   LOCAL_IP_ADDRESS "127.0.0.1" 
 
-typedef struct Table 
-{
-  struct Finger **finger_array;
-  int length;
-} Table;
-
 typedef struct Node 
 {
   uint32_t key;
   char ip_address[12];
   int port;
 } Node;
-
-typedef struct ChordRing 
-{
-  int size;
-  char *ip_address;
-  int port;
-  Node *first;
-  Node *last;
-  Node *node_array[MAX_RING_SIZE];
-} ChordRing;
 
 /*============================================================
  * function declarations
@@ -72,8 +56,9 @@ void update_node(Node node);
 void update_predecessor(Node node, Node predecessor);
 
 uint32_t hash_address(char *ip_address, int port);
-void print_node(Node n);
 Node send_request(Node n, char message[]);
+void print_node(Node n);
+void println();
 
 int ring_size;
 Node self_node;
@@ -132,7 +117,7 @@ void begin_listening(int port) {
 
     /* accept a new connection from a client here */
     connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-    printf("Connected to new client\n");
+    printf("Connected to new client, fd: %d\n", connfd);
 
     pthread_t thread;
     int *args = malloc(sizeof(int));
@@ -141,9 +126,6 @@ void begin_listening(int port) {
     if (pthread_create(&thread, NULL, &receive_client, (void *)args) < 0) {
       printf("receive_client thread error\n");
     }
-    // pthread_join(&thread);
-
-    printf("Done Thread\n");
   }
 }
 
@@ -206,9 +188,24 @@ void* receive_client(void *args) {
 
     shutdown(clientfd, SHUT_WR);
     printf("Response sent.\n");
-  }
+  }  
 
-  
+  /* fetch node's predecessor */
+  if (strncmp(request, "fetch_pre", 9) == 0) {
+    printf("Handing fetch_pre\n");
+    buf1[0] = 0;
+    sprintf(buf1, "%u\n", self_predecessor.key);
+    strcat(buf1, self_predecessor.ip_address);
+    strcat(buf1, "\n");
+    sprintf(buf2, "%d\n", self_predecessor.port);
+    strcat(buf1, buf2);
+    if (rio_writen(clientfd, buf1, MAXLINE) < 0) {
+      perror("Send error:");
+    }
+
+    shutdown(clientfd, SHUT_WR);
+    printf("Response sent.\n");
+  }
 
   /* ask node for successor of key */
   if (strncmp(request, "query_suc", 9) == 0) {
@@ -290,17 +287,13 @@ uint32_t hash_address(char *ip_address, int port) {
   uint32_t key;
   port_str[0] = 0;
   sprintf(port_str, "%d", port);
-  printf("%s\n", port_str);
   char data[strlen(ip_address) + strlen(port_str) + sizeof(char)];
   data[0] = 0;
   strcat(data, ip_address);
   strcat(data, ":");
   strcat(data, port_str);
   SHA1(data, sizeof(data), hash);
-  printf("%s\n", data);
-  printf("%s\n", hash);
   memcpy(&key, hash + 16, sizeof(key));
-  printf("%u\n", key);
   return key;
 }
 
@@ -324,7 +317,10 @@ void join_node(char *ip_address, int node_port, int listen_port) {
   /* Initialize predecessor, successor */
   self_successor = query_successor(key, fetch_node);
   print_node(self_successor);
+  println();
   self_predecessor = fetch_predecessor(self_successor);
+  print_node(self_predecessor);
+  println();
   update_predecessor(self_node, self_predecessor);
 
   /* Initialize finger table */
@@ -339,6 +335,7 @@ void join_node(char *ip_address, int node_port, int listen_port) {
     product = product * 2;
     printf("finger %d\n", i);
     print_node(self_finger_table[i]);
+    println();
   }
 
   printf("You are listening on port %d\n", self_node.port);
@@ -412,7 +409,7 @@ Node query_predecessor(uint32_t key, Node n) {
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "query_pre");
-  sprintf(request_string+9, "%u\n", key);
+  sprintf(request_string+9, "%u", key);
   return send_request(n, request_string);
 }
 
@@ -420,7 +417,7 @@ Node query_successor(uint32_t key, Node n) {
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "query_suc");
-  sprintf(request_string+9, "%u\n", key);
+  sprintf(request_string+9, "%u", key);
   return send_request(n, request_string);
 }
 
@@ -428,7 +425,7 @@ Node query_closest_preceding_finger(uint32_t key, Node n) {
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "query_cpf");
-  sprintf(request_string+9, "%u\n", key);
+  sprintf(request_string+9, "%u", key);
   return send_request(n, request_string);
 }
 
@@ -462,6 +459,7 @@ Node send_request(Node n, char message[]) {
   int numBytes;
   char response[MAXLINE];
   printf("Message: %s\n", message);
+
   if (send(sock, message, MAXLINE,0) < 0) {
     perror("Send error:");
   }
@@ -500,5 +498,9 @@ void print_node(Node n) {
   printf("Key: %u\n", n.key);
   printf("IP: %s\n", n.ip_address);
   printf("port: %d\n", n.port);
+}
+
+void println() {
+  printf("\n");
 }
 
