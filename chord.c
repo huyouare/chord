@@ -54,6 +54,7 @@ typedef struct ChordRing
 
 void initialize_chord(int port);
 void add_new_node(char *ip_address, int port, int node_port);
+void begin_listening(int port);
 void receive_client(void *args);
 void update_node(Node node);
 
@@ -62,20 +63,19 @@ Node find_prececessor(uint32_t key);
 Node closest_preceding_finger(uint32_t key);
 bool is_between(uint32_t key, uint32_t a, uint32_t b);
 
-Node fetch_successor(Node n);
-Node fetch_closest_preceding_finger(uint32_t key, Node n);
+Node query_successor(uint32_t key, Node n);
+Node query_predecessor(uint32_t key, Node n);
+Node query_closest_preceding_finger(uint32_t key, Node n);
 
+uint32_t hash_address(char *ip_address, int port);
 void print_node(Node n);
 Node send_request(Node n, char *message);
 
 int ring_size;
 Node self_node;
-Node predecessor;
-Node successor;
-Node finger_table[KEY_SIZE];
-int ip_address_table[KEY_SIZE];
-int port_table[KEY_SIZE];
-uint32_t hash_address(char *ip_address, int port);
+Node self_predecessor;
+Node self_successor;
+Node self_finger_table[KEY_SIZE];
 
 int main(int argc, char *argv[])
 { 
@@ -106,15 +106,19 @@ void initialize_chord(int port) {
   self_node.port = port;
   self_node.key = hash_address(LOCAL_IP_ADDRESS, port);
   /* Set self to predecessor and successor */
-  predecessor = self_node;
-  successor = self_node;
+  self_predecessor = self_node;
+  self_successor = self_node;
 
   /* Set self for fingers */
   int i;
   for (i = 0; i < KEY_SIZE; i++) {
-    finger_table[i] = self_node;
+    self_finger_table[i] = self_node;
   }
 
+  begin_listening(port);
+}
+
+void begin_listening(int port) {
   int listenfd, connfd, optval, clientlen;
   struct sockaddr_in clientaddr;
 
@@ -196,10 +200,10 @@ void receive_client(void *args) {
   if (strncmp(request, "fetch_suc", 9) == 0) {
     printf("Handing fetch_suc\n");
     buf1[0] = 0;
-    sprintf(buf1, "%u\n", successor.key);
-    strcat(buf1, successor.ip_address);
+    sprintf(buf1, "%u\n", self_successor.key);
+    strcat(buf1, self_successor.ip_address);
     strcat(buf1, "\n");
-    sprintf(buf2, "%d\n", successor.port);
+    sprintf(buf2, "%d\n", self_successor.port);
     strcat(buf1, buf2);
     if (rio_writen(clientfd, buf1, MAXLINE) < 0) {
       perror("Send error:");
@@ -282,14 +286,6 @@ void receive_client(void *args) {
   }
 }
 
-void node_process() {
-
-}
-
-void node_listen() {
-
-}
-
 uint32_t hash_address(char *ip_address, int port) {
   char port_str[5];
   unsigned char hash[SHA_DIGEST_LENGTH];
@@ -335,38 +331,32 @@ void add_new_node(char *ip_address, int port, int node_port) {
   }
   printf("Connected to server %s:%d\n", ip_address, node_port);
   
+  /* Initialize predecessor, successor */
   Node fetch_node;
-  printf("%s\n", ip_address);
   strcpy(fetch_node.ip_address, ip_address);
-  printf("%s\n", fetch_node.ip_address);
-
   fetch_node.port = node_port;
   fetch_node.key = key;
 
-  Node node;
-  node = fetch_closest_preceding_finger(key, fetch_node);
+  self_predecessor = query_predecessor(key, fetch_node);
+  print_node(self_predecessor);
+  self_successor = query_successor(key, fetch_node);
+  print_node(self_successor);
 
-  // char request_string[MAXLINE];
-  // request_string[0] = 0;
-  // // strcat(request_string, "new");
-  // // sprintf(request_string+3, "%u\0", key);
+  /* Initialize finger table */
+  int i = 0;
+  int product = 1;
+  /* n+2^i where i = 0..<m */
+  for (i = 0; i < KEY_SIZE; i++) {
+    self_finger_table[i] = query_successor((key + product) % KEY_SPACE, fetch_node);
+    // if (i > 0 && fingers[i].key != fingers[i-1].key) {
+    //   update_node(fingers[i]);
+    // }
+    product = product * 2;
+    printf("finger %d\n", i);
+    print_node(self_finger_table[i]);
+  }
 
-  // printf("%s\n", request_string);
-  // if (send(sock, request_string, MAX_MSG_LENGTH, 0) < 0) {
-  //   perror("Send error:");
-  // }
-
-  // while (1) {
-  //   printf("%s", request_string);
-  //   if (send(sock, request_string, MAXLINE, 0) < 0) {
-  //     perror("Send error");
-  //   }
-  // }
-
-  // Add successor/predecessor
-  // Node *head = null;
-
-  // printf("You are listening on port %d\n", chord_port);
+  printf("You are listening on port %d\n", port);
   printf("Your position is...\n");
 
 }
@@ -376,13 +366,13 @@ Node find_successor(uint32_t key) {
 }
 
 Node find_prececessor(uint32_t key) {
-  if (self_node.key == successor.key) {
+  if (self_node.key == self_successor.key) {
     return self_node;
   }
   Node n = self_node;
-  Node suc = successor;
+  Node suc = self_successor;
   while (!is_between(key, n.key, suc.key)) {
-    n = fetch_closest_preceding_finger(key, n);
+    n = query_closest_preceding_finger(key, n);
     // suc = n;
   }
 }
@@ -391,9 +381,9 @@ Node closest_preceding_finger(uint32_t key) {
   int i;
   for (i = KEY_SIZE - 1; i >= 0; i--) {
     printf("Node %d: \n", i);
-    print_node(finger_table[i]);
-    if (is_between(key, finger_table[i].key, self_node.key)) {
-      return finger_table[i];
+    print_node(self_finger_table[i]);
+    if (is_between(key, self_finger_table[i].key, self_node.key)) {
+      return self_finger_table[i];
     }
   }
   return self_node;
@@ -416,19 +406,29 @@ bool is_between(uint32_t key, uint32_t a, uint32_t b) {
   return false;
 }
 
-Node fetch_successor(Node n) {
+Node query_predecessor(uint32_t key, Node n) {
   char request_string[MAXLINE];
   request_string[0] = 0;
-  strcat(request_string, "fetch_suc");
+  strcat(request_string, "query_pre");
+  sprintf(request_string+9, "%u\0", key);
   printf("%s\n", request_string);
   return send_request(n, &request_string);
 }
 
-Node fetch_closest_preceding_finger(uint32_t key, Node n) {
+Node query_successor(uint32_t key, Node n) {
   char request_string[MAXLINE];
   request_string[0] = 0;
-  // strcat(request_string, "fetch_cpf");
-  // sprintf(request_string+9, "%u\0", key);
+  strcat(request_string, "query_suc");
+  sprintf(request_string+9, "%u\0", key);
+  printf("%s\n", request_string);
+  return send_request(n, &request_string);
+}
+
+Node query_closest_preceding_finger(uint32_t key, Node n) {
+  char request_string[MAXLINE];
+  request_string[0] = 0;
+  strcat(request_string, "query_cpf");
+  sprintf(request_string+9, "%u\0", key);
   printf("%s\n", request_string);
   return send_request(n, &request_string);
 }
