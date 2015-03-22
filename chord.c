@@ -59,9 +59,13 @@ void update_node(Node node);
 
 Node find_successor(uint32_t key);
 Node find_prececessor(uint32_t key);
-Node closet_preceding_finger(uint32_t key);
+Node closest_preceding_finger(uint32_t key);
 bool is_between(uint32_t key, uint32_t a, uint32_t b);
+
+Node fetch_successor(Node n);
 Node fetch_closest_preceding_finger(uint32_t key, Node n);
+
+void print_node(Node n);
 Node send_request(Node n, char *message);
 
 int ring_size;
@@ -157,10 +161,7 @@ void receive_client(void *args) {
 
   printf("Waiting for client request...\n");
   /* Read first line of request */
-
-  // Rio_readinitb(&client, clientfd);
   numBytes = Rio_readn(clientfd, request, MAXLINE);
-  printf("\n");
   if (numBytes <= 0) {
     printf("No request received\n");
   }
@@ -191,14 +192,14 @@ void receive_client(void *args) {
     }
   }
 
-  /* fetch closest preceding finger */
-  if (strncmp(request, "fetch", 5) == 0) {
-    printf("Handing \"fetch\"\n");
+  /* fetch node's successor */
+  if (strncmp(request, "fetch_suc", 9) == 0) {
+    printf("Handing fetch_suc\n");
     buf1[0] = 0;
-    sprintf(buf1, "%u\n", self_node.key);
-    strcat(buf1, self_node.ip_address);
+    sprintf(buf1, "%u\n", successor.key);
+    strcat(buf1, successor.ip_address);
     strcat(buf1, "\n");
-    sprintf(buf2, "%d\n", self_node.port);
+    sprintf(buf2, "%d\n", successor.port);
     strcat(buf1, buf2);
     if (rio_writen(clientfd, buf1, MAXLINE) < 0) {
       perror("Send error:");
@@ -208,22 +209,77 @@ void receive_client(void *args) {
     printf("Response sent.\n");
   }
 
-  // /* finger table request */
-  // if (strncmp(request, "table", 5) == 0) {
-  //   char table_string[MAX_MSG_LENGTH];
-  //   table_string[0] = 0;
-  //   char key_string[10];
-  //   int i;
-  //   for (i = 0; i < KEY_SIZE; i++) {
-  //     sprintf(key_string, "%u\0", finger_table[i]);
-  //     strcat(table_string, key_string);
-  //     strcat(table_string, ",");
-  //   }
-  //   printf("Table String: %s\n", table_string);
-  //   if (send(clientfd, table_string, MAX_MSG_LENGTH, 0) < 0) {
-  //     perror("Send error:");
-  //   }
-  // }
+  /* ask node for successor of key */
+  if (strncmp(request, "query_suc", 9) == 0) {
+    printf("Handing query_suc\n");
+    uint32_t key = 0;
+    key = (uint32_t) atoi(request+9);
+    printf("%u\n", key);
+
+    Node successor = find_successor(key);
+    print_node(successor);
+
+    buf1[0] = 0;
+    sprintf(buf1, "%u\n", successor.key);
+    strcat(buf1, successor.ip_address);
+    strcat(buf1, "\n");
+    sprintf(buf2, "%d\n", successor.port);
+    strcat(buf1, buf2);
+    if (rio_writen(clientfd, buf1, MAXLINE) < 0) {
+      perror("Send error:");
+    }
+
+    shutdown(clientfd, SHUT_WR);
+    printf("Response sent.\n");
+  }
+
+  /* ask node for predecessor of key */
+  if (strncmp(request, "query_pre", 9) == 0) {
+    printf("Handing query_pre\n");
+    uint32_t key = 0;
+    key = (uint32_t) atoi(request+9);
+    printf("%u\n", key);
+
+    Node predecessor = find_prececessor(key);
+    print_node(predecessor);
+
+    buf1[0] = 0;
+    sprintf(buf1, "%u\n", predecessor.key);
+    strcat(buf1, predecessor.ip_address);
+    strcat(buf1, "\n");
+    sprintf(buf2, "%d\n", predecessor.port);
+    strcat(buf1, buf2);
+    if (rio_writen(clientfd, buf1, MAXLINE) < 0) {
+      perror("Send error:");
+    }
+
+    shutdown(clientfd, SHUT_WR);
+    printf("Response sent.\n");
+  }
+
+  /* ask node for closest preceding finger of key */
+  if (strncmp(request, "query_cpf", 9) == 0) {
+    printf("Handing query_cpf\n");
+    uint32_t key = 0;
+    key = (uint32_t) atoi(request+9);
+    printf("%u\n", key);
+
+    Node cpf = closest_preceding_finger(key);
+    print_node(cpf);
+
+    buf1[0] = 0;
+    sprintf(buf1, "%u\n", cpf.key);
+    strcat(buf1, cpf.ip_address);
+    strcat(buf1, "\n");
+    sprintf(buf2, "%d\n", cpf.port);
+    strcat(buf1, buf2);
+    if (rio_writen(clientfd, buf1, MAXLINE) < 0) {
+      perror("Send error:");
+    }
+
+    shutdown(clientfd, SHUT_WR);
+    printf("Response sent.\n");
+  }
 }
 
 void node_process() {
@@ -289,7 +345,6 @@ void add_new_node(char *ip_address, int port, int node_port) {
 
   Node node;
   node = fetch_closest_preceding_finger(key, fetch_node);
-  printf("HUZZAH: %s\n", node.ip_address);
 
   // char request_string[MAXLINE];
   // request_string[0] = 0;
@@ -327,17 +382,21 @@ Node find_prececessor(uint32_t key) {
   Node n = self_node;
   Node suc = successor;
   while (!is_between(key, n.key, suc.key)) {
-    // n = 
+    n = fetch_closest_preceding_finger(key, n);
+    // suc = n;
   }
 }
 
-Node closet_preceding_finger(uint32_t key) {
+Node closest_preceding_finger(uint32_t key) {
   int i;
-  for (i = KEY_SIZE - 1; i >= 0; i++) {
+  for (i = KEY_SIZE - 1; i >= 0; i--) {
+    printf("Node %d: \n", i);
+    print_node(finger_table[i]);
     if (is_between(key, finger_table[i].key, self_node.key)) {
       return finger_table[i];
     }
   }
+  return self_node;
 }
 
 bool is_between(uint32_t key, uint32_t a, uint32_t b) {
@@ -357,12 +416,19 @@ bool is_between(uint32_t key, uint32_t a, uint32_t b) {
   return false;
 }
 
-Node fetch_closest_preceding_finger(uint32_t key, Node n) {
-
+Node fetch_successor(Node n) {
   char request_string[MAXLINE];
   request_string[0] = 0;
-  strcat(request_string, "fetch");
-  sprintf(request_string+5, "%u\0", key);
+  strcat(request_string, "fetch_suc");
+  printf("%s\n", request_string);
+  return send_request(n, &request_string);
+}
+
+Node fetch_closest_preceding_finger(uint32_t key, Node n) {
+  char request_string[MAXLINE];
+  request_string[0] = 0;
+  // strcat(request_string, "fetch_cpf");
+  // sprintf(request_string+9, "%u\0", key);
   printf("%s\n", request_string);
   return send_request(n, &request_string);
 }
@@ -396,7 +462,7 @@ Node send_request(Node n, char *message) {
   if (send(sock, message, MAXLINE,0) < 0) {
     perror("Send error:");
   }
-  // shutdown(sock, SHUT_WR);
+  shutdown(sock, SHUT_WR);
 
   Rio_readinitb(&server, sock);
   numBytes = Rio_readlineb(&server, response, MAXLINE);
@@ -423,5 +489,11 @@ Node send_request(Node n, char *message) {
   }
 
   return return_node;
+}
+
+void print_node(Node n) {
+  printf("Key: %u\n", n.key);
+  printf("IP: %s\n", n.ip_address);
+  printf("port: %d\n", n.port);
 }
 
