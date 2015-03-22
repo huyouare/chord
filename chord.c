@@ -246,7 +246,7 @@ void receive_client(void *args) {
     key = (uint32_t) atoi(request+9);
     printf("%u\n", key);
 
-    Node predecessor = find_prececessor(key);
+    Node predecessor = find_predecessor(key);
     print_node(predecessor);
 
     buf1[0] = 0;
@@ -345,6 +345,8 @@ void add_new_node(char *ip_address, int port, int node_port) {
 
   self_successor = query_successor(key, fetch_node);
   print_node(self_successor);
+  self_predecessor = query_predecessor(self_successor);
+  update_predecessor(self_node, self_predecessor);
 
   /* Initialize finger table */
   int i = 0;
@@ -369,10 +371,10 @@ void add_new_node(char *ip_address, int port, int node_port) {
 
 Node find_successor(uint32_t key) {
   Node n = find_prececessor(key);
-  return fetch
+  return fetch_successor(n);
 }
 
-Node find_prececessor(uint32_t key) {
+Node find_predecessor(uint32_t key) {
   if (self_node.key == self_successor.key) {
     return self_node;
   }
@@ -380,7 +382,7 @@ Node find_prececessor(uint32_t key) {
   Node suc = self_successor;
   while (!is_between(key, n.key, suc.key)) {
     n = query_closest_preceding_finger(key, n);
-    suc = 
+    suc = fetch_successor(n);
   }
 }
 
