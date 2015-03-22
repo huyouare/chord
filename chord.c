@@ -5,6 +5,7 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "csapp.h"
 #include <pthread.h>
 #include <string.h>
@@ -21,10 +22,8 @@
 #define   MAX_RING_SIZE 100
 #define   KEY_SIZE      32
 #define   KEY_SPACE     4294967296
-#define   MAX_MSG_LENGTH 512
 #define   MAX_BACK_LOG  512
 #define   LOCAL_IP_ADDRESS "127.0.0.1" 
-
 
 typedef struct Table 
 {
@@ -35,7 +34,7 @@ typedef struct Table
 typedef struct Node 
 {
   uint32_t key;
-  char *ip_address;
+  char ip_address[12];
   int port;
 } Node;
 
@@ -76,6 +75,10 @@ uint32_t hash_address(char *ip_address, int port);
 
 int main(int argc, char *argv[])
 { 
+  int z;  /* Status code */
+  int s;     /* Socket s */
+  struct linger so_linger;
+
   int chord_port, port, node_port;
   unsigned char hash[SHA_DIGEST_LENGTH];
 
@@ -95,7 +98,7 @@ int main(int argc, char *argv[])
 void initialize_chord(int port) {
   printf("Creating new Chord ring...\n");
 
-  self_node.ip_address = LOCAL_IP_ADDRESS;
+  strcpy(self_node.ip_address, LOCAL_IP_ADDRESS);
   self_node.port = port;
   self_node.key = hash_address(LOCAL_IP_ADDRESS, port);
   /* Set self to predecessor and successor */
@@ -150,11 +153,14 @@ void receive_client(void *args) {
   free(args);
 
   char request[MAXLINE];
+  request[0] = 0;
 
+  printf("Waiting for client request...\n");
   /* Read first line of request */
-  Rio_readinitb(&client, clientfd);
-  numBytes = Rio_readlineb(&client, request, MAXLINE);
 
+  // Rio_readinitb(&client, clientfd);
+  numBytes = Rio_readn(clientfd, request, MAXLINE);
+  printf("\n");
   if (numBytes <= 0) {
     printf("No request received\n");
   }
@@ -187,11 +193,19 @@ void receive_client(void *args) {
 
   /* fetch closest preceding finger */
   if (strncmp(request, "fetch", 5) == 0) {
+    printf("Handing \"fetch\"\n");
     buf1[0] = 0;
-    sprintf(buf1, "%u\0", self_node.key);
-    if (send(clientfd, buf1, MAX_MSG_LENGTH, 0) < 0) {
+    sprintf(buf1, "%u\n", self_node.key);
+    strcat(buf1, self_node.ip_address);
+    strcat(buf1, "\n");
+    sprintf(buf2, "%d\n", self_node.port);
+    strcat(buf1, buf2);
+    if (rio_writen(clientfd, buf1, MAXLINE) < 0) {
       perror("Send error:");
     }
+
+    shutdown(clientfd, SHUT_WR);
+    printf("Response sent.\n");
   }
 
   // /* finger table request */
@@ -264,8 +278,18 @@ void add_new_node(char *ip_address, int port, int node_port) {
     perror("Connect error:");
   }
   printf("Connected to server %s:%d\n", ip_address, node_port);
+  
+  Node fetch_node;
+  printf("%s\n", ip_address);
+  strcpy(fetch_node.ip_address, ip_address);
+  printf("%s\n", fetch_node.ip_address);
 
-  fetch_closest_preceding_finger(self_node.key, self_node);
+  fetch_node.port = node_port;
+  fetch_node.key = key;
+
+  Node node;
+  node = fetch_closest_preceding_finger(key, fetch_node);
+  printf("HUZZAH: %s\n", node.ip_address);
 
   // char request_string[MAXLINE];
   // request_string[0] = 0;
@@ -290,47 +314,6 @@ void add_new_node(char *ip_address, int port, int node_port) {
   // printf("You are listening on port %d\n", chord_port);
   printf("Your position is...\n");
 
-}
-
-void fetch_table(Node node, Node** table) {
-  int sock, numBytes;
-  char response[MAX_MSG_LENGTH];
-  struct sockaddr_in server_addr;
-  rio_t server, client;
-
-  printf("Fetching for %u\n", node.key);
-
-  if ((sock = socket(AF_INET, SOCK_STREAM/* use tcp */, 0)) < 0) {
-    perror("Create socket error:");
-  }
-
-  server_addr.sin_addr.s_addr = inet_addr(node.ip_address);
-  server_addr.sin_family = AF_INET;
-  server_addr.sin_port = htons(node.port);
-
-  if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-    perror("Connect error:");
-  }
-  printf("Connected to server %s:%d\n", node.ip_address, node.port);
-
-  char request_string[MAXLINE];
-  request_string[0] = 0;
-  strcat(request_string, "table");
-
-  printf("%s\n", request_string);
-  if (send(sock, request_string, MAX_MSG_LENGTH, 0) < 0) {
-    perror("Send error:");
-  }
-
-  Rio_readinitb(&server, sock);
-  numBytes = Rio_readlineb(&server, response, MAXLINE);
-  if (numBytes <= 0) {
-    printf("No response received\n");
-  }
-  while (numBytes > 0) {
-    printf("Response: %s\n", response);
-    numBytes = Rio_readlineb(&server, response, MAXLINE);
-  } 
 }
 
 Node find_successor(uint32_t key) {
@@ -375,10 +358,12 @@ bool is_between(uint32_t key, uint32_t a, uint32_t b) {
 }
 
 Node fetch_closest_preceding_finger(uint32_t key, Node n) {
+
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "fetch");
   sprintf(request_string+5, "%u\0", key);
+  printf("%s\n", request_string);
   return send_request(n, &request_string);
 }
 
@@ -405,13 +390,14 @@ Node send_request(Node n, char *message) {
   }
   printf("Connected to server %s:%d\n", n.ip_address, n.port);
 
+  int numBytes;
+  char response[MAXLINE];
   printf("%s\n", message);
-  if (send(sock, message, MAX_MSG_LENGTH, 0) < 0) {
+  if (send(sock, message, MAXLINE,0) < 0) {
     perror("Send error:");
   }
+  // shutdown(sock, SHUT_WR);
 
-  int numBytes;
-  char response[MAX_MSG_LENGTH];
   Rio_readinitb(&server, sock);
   numBytes = Rio_readlineb(&server, response, MAXLINE);
   if (numBytes <= 0) {
@@ -419,12 +405,16 @@ Node send_request(Node n, char *message) {
   } else {
     return_node.key = (uint32_t) atoi(response);
   }
+
+  response[0] = 0;
   numBytes = Rio_readlineb(&server, response, MAXLINE);
   if (numBytes <= 0) {
     printf("No response received\n");
   } else {
     strcpy(return_node.ip_address, response);
   }
+
+  response[0] = 0;
   numBytes = Rio_readlineb(&server, response, MAXLINE);
   if (numBytes <= 0) {
     printf("No response received\n");
