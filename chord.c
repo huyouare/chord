@@ -331,6 +331,10 @@ void add_new_node(char *ip_address, int port, int node_port) {
   }
   printf("Connected to server %s:%d\n", ip_address, node_port);
   
+  strcpy(self_node.ip_address, LOCAL_IP_ADDRESS);
+  self_node.port = port;
+  self_node.key = key;
+
   /* Initialize predecessor, successor */
   Node fetch_node;
   strcpy(fetch_node.ip_address, ip_address);
@@ -357,8 +361,10 @@ void add_new_node(char *ip_address, int port, int node_port) {
   }
 
   printf("You are listening on port %d\n", port);
-  printf("Your position is...\n");
-
+  printf("Your position is %u\n", self_node.key);
+  printf("Your predecessor is node %s, port %d, position %u\n", self_predecessor.ip_address, self_predecessor.port, self_predecessor.key);
+  printf("Your successor is node %s, port %d, position %u\n", self_successor.ip_address, self_successor.port, self_successor.key);
+  begin_listening(port);
 }
 
 Node find_successor(uint32_t key) {
@@ -411,7 +417,6 @@ Node query_predecessor(uint32_t key, Node n) {
   request_string[0] = 0;
   strcat(request_string, "query_pre");
   sprintf(request_string+9, "%u\0", key);
-  printf("%s\n", request_string);
   return send_request(n, &request_string);
 }
 
@@ -420,7 +425,6 @@ Node query_successor(uint32_t key, Node n) {
   request_string[0] = 0;
   strcat(request_string, "query_suc");
   sprintf(request_string+9, "%u\0", key);
-  printf("%s\n", request_string);
   return send_request(n, &request_string);
 }
 
@@ -429,7 +433,6 @@ Node query_closest_preceding_finger(uint32_t key, Node n) {
   request_string[0] = 0;
   strcat(request_string, "query_cpf");
   sprintf(request_string+9, "%u\0", key);
-  printf("%s\n", request_string);
   return send_request(n, &request_string);
 }
 
@@ -458,7 +461,7 @@ Node send_request(Node n, char *message) {
 
   int numBytes;
   char response[MAXLINE];
-  printf("%s\n", message);
+  printf("Message: %s\n", message);
   if (send(sock, message, MAXLINE,0) < 0) {
     perror("Send error:");
   }
@@ -477,6 +480,8 @@ Node send_request(Node n, char *message) {
   if (numBytes <= 0) {
     printf("No response received\n");
   } else {
+    int len = strlen(response);
+    if (len > 0 && response[len-1] == '\n') response[len-1] = '\0';
     strcpy(return_node.ip_address, response);
   }
 
