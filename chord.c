@@ -53,13 +53,12 @@ typedef struct ChordRing
  *============================================================*/
 
 void initialize_chord(int port);
-void add_new_node(char *ip_address, int port, int node_port);
+void join_node(char *ip_address, int node_port, int listen_port);
 void begin_listening(int port);
-void receive_client(void *args);
-void update_node(Node node);
+void* receive_client(void *args);
 
 Node find_successor(uint32_t key);
-Node find_prececessor(uint32_t key);
+Node find_predecessor(uint32_t key);
 Node closest_preceding_finger(uint32_t key);
 bool is_between(uint32_t key, uint32_t a, uint32_t b);
 
@@ -69,9 +68,12 @@ Node query_successor(uint32_t key, Node n);
 Node query_predecessor(uint32_t key, Node n);
 Node query_closest_preceding_finger(uint32_t key, Node n);
 
+void update_node(Node node);
+void update_predecessor(Node node, Node predecessor);
+
 uint32_t hash_address(char *ip_address, int port);
 void print_node(Node n);
-Node send_request(Node n, char *message);
+Node send_request(Node n, char message[]);
 
 int ring_size;
 Node self_node;
@@ -81,20 +83,15 @@ Node self_finger_table[KEY_SIZE];
 
 int main(int argc, char *argv[])
 { 
-  int z;  /* Status code */
-  int s;     /* Socket s */
-  struct linger so_linger;
-
-  int chord_port, port, node_port;
-  unsigned char hash[SHA_DIGEST_LENGTH];
+  int listen_port, node_port;
 
   if (argc == 2) {
-    chord_port = atoi(argv[1]);
-    initialize_chord(chord_port);
+    listen_port = atoi(argv[1]);
+    initialize_chord(listen_port);
   } else if (argc == 4) {
-    port = atoi(argv[1]);
+    listen_port = atoi(argv[1]);
     node_port = atoi(argv[3]);
-    add_new_node(argv[2], port, node_port);
+    join_node(argv[2], node_port, listen_port);
   } else {
     printf("Usage: %s port [nodeAddress nodePort]\n", argv[0]);
     exit(1);
@@ -107,6 +104,7 @@ void initialize_chord(int port) {
   strcpy(self_node.ip_address, LOCAL_IP_ADDRESS);
   self_node.port = port;
   self_node.key = hash_address(LOCAL_IP_ADDRESS, port);
+
   /* Set self to predecessor and successor */
   self_predecessor = self_node;
   self_successor = self_node;
@@ -130,20 +128,17 @@ void begin_listening(int port) {
   printf("Listening on port %d\n", port);
 
   while(1) {
-    printf("New client\n");
     clientlen = sizeof(clientaddr); //struct sockaddr_in
 
     /* accept a new connection from a client here */
     connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-    printf("Connected to client\n");
+    printf("Connected to new client\n");
 
     pthread_t thread;
-
-    int *args = malloc(2 * sizeof(int));
+    int *args = malloc(sizeof(int));
     args[0] = connfd;
-    args[1] = port;
 
-    if (pthread_create(&thread, NULL, &receive_client, args) < 0) {
+    if (pthread_create(&thread, NULL, &receive_client, (void *)args) < 0) {
       printf("receive_client thread error\n");
     }
     // pthread_join(&thread);
@@ -152,14 +147,13 @@ void begin_listening(int port) {
   }
 }
 
-void receive_client(void *args) {
-  int numBytes, lineNum, serverfd, clientfd, serverPort;
+void* receive_client(void *args) {
+  int numBytes, clientfd;
   int byteCount = 0;
   char buf1[MAXLINE], buf2[MAXLINE], buf3[MAXLINE];
   rio_t server, client;
   
   clientfd = ((int*)args)[0];
-  serverPort = ((int*)args)[1];
   free(args);
 
   char request[MAXLINE];
@@ -194,7 +188,6 @@ void receive_client(void *args) {
         update_node(fingers[i]);
       }
       product = product * 2;
-      printf("finger %d: %u\n", i, fingers[i]);
     }
   }
 
@@ -214,6 +207,8 @@ void receive_client(void *args) {
     shutdown(clientfd, SHUT_WR);
     printf("Response sent.\n");
   }
+
+  
 
   /* ask node for successor of key */
   if (strncmp(request, "query_suc", 9) == 0) {
@@ -294,7 +289,7 @@ uint32_t hash_address(char *ip_address, int port) {
   hash[0] = 0;
   uint32_t key;
   port_str[0] = 0;
-  sprintf(port_str, "%d\0", port);
+  sprintf(port_str, "%d", port);
   printf("%s\n", port_str);
   char data[strlen(ip_address) + strlen(port_str) + sizeof(char)];
   data[0] = 0;
@@ -309,43 +304,27 @@ uint32_t hash_address(char *ip_address, int port) {
   return key;
 }
 
-void add_new_node(char *ip_address, int port, int node_port) {
+/* Join */
+void join_node(char *ip_address, int node_port, int listen_port) {
   uint32_t key = 0;
   int serverfd;
 
-  key = hash_address(ip_address, port);
-
-  printf("Joining the Chord ring...\n");
-
-  int sock;
-  struct sockaddr_in server_addr;
-
-  if ((sock = socket(AF_INET, SOCK_STREAM/* use tcp */, 0)) < 0) {
-    perror("Create socket error:");
-  }
-
-  server_addr.sin_addr.s_addr = inet_addr(ip_address);
-  server_addr.sin_family = AF_INET;
-  server_addr.sin_port = htons(node_port);
-
-  if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-    perror("Connect error:");
-  }
-  printf("Connected to server %s:%d\n", ip_address, node_port);
-  
+  /* Set up local node attributes */
+  key = hash_address(LOCAL_IP_ADDRESS, listen_port);
   strcpy(self_node.ip_address, LOCAL_IP_ADDRESS);
-  self_node.port = port;
+  self_node.port = listen_port;
   self_node.key = key;
 
-  /* Initialize predecessor, successor */
+  /* Initialize remote note */
   Node fetch_node;
   strcpy(fetch_node.ip_address, ip_address);
   fetch_node.port = node_port;
   fetch_node.key = key;
 
+  /* Initialize predecessor, successor */
   self_successor = query_successor(key, fetch_node);
   print_node(self_successor);
-  self_predecessor = query_predecessor(self_successor);
+  self_predecessor = fetch_predecessor(self_successor);
   update_predecessor(self_node, self_predecessor);
 
   /* Initialize finger table */
@@ -362,15 +341,15 @@ void add_new_node(char *ip_address, int port, int node_port) {
     print_node(self_finger_table[i]);
   }
 
-  printf("You are listening on port %d\n", port);
+  printf("You are listening on port %d\n", self_node.port);
   printf("Your position is %u\n", self_node.key);
   printf("Your predecessor is node %s, port %d, position %u\n", self_predecessor.ip_address, self_predecessor.port, self_predecessor.key);
   printf("Your successor is node %s, port %d, position %u\n", self_successor.ip_address, self_successor.port, self_successor.key);
-  begin_listening(port);
+  begin_listening(listen_port);
 }
 
 Node find_successor(uint32_t key) {
-  Node n = find_prececessor(key);
+  Node n = find_predecessor(key);
   return fetch_successor(n);
 }
 
@@ -419,45 +398,49 @@ Node fetch_successor(Node n) {
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "fetch_suc");
-  return send_request(n, &request_string);
+  return send_request(n, request_string);
 }
 
 Node fetch_predecessor(Node n) {
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "fetch_pre");
-  return send_request(n, &request_string);
+  return send_request(n, request_string);
 }
 
 Node query_predecessor(uint32_t key, Node n) {
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "query_pre");
-  sprintf(request_string+9, "%u\0", key);
-  return send_request(n, &request_string);
+  sprintf(request_string+9, "%u\n", key);
+  return send_request(n, request_string);
 }
 
 Node query_successor(uint32_t key, Node n) {
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "query_suc");
-  sprintf(request_string+9, "%u\0", key);
-  return send_request(n, &request_string);
+  sprintf(request_string+9, "%u\n", key);
+  return send_request(n, request_string);
 }
 
 Node query_closest_preceding_finger(uint32_t key, Node n) {
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "query_cpf");
-  sprintf(request_string+9, "%u\0", key);
-  return send_request(n, &request_string);
+  sprintf(request_string+9, "%u\n", key);
+  return send_request(n, request_string);
 }
 
 void update_node(Node node) {
 
 }
 
-Node send_request(Node n, char *message) {
+void update_predecessor(Node node, Node predecessor) {
+
+}
+
+Node send_request(Node n, char message[]) {
   Node return_node;
   int sock;
   struct sockaddr_in server_addr;
