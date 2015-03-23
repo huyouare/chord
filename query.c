@@ -137,7 +137,6 @@ uint32_t hash_address(char *ip_address, int port) {
   return key;
 }
 
-
 void print_node(Node n) {
   printf("Key: %u\n", n.key);
   printf("IP: %s\n", n.ip_address);

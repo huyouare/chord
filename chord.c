@@ -67,12 +67,15 @@ void send_request(Node n, char message[]);
 
 void print_node(Node n);
 void println();
+bool is_equal(Node a, Node b);
 
 Node self_node;
 Node self_predecessor;
 Node self_successor;
 Node self_finger_table[KEY_SIZE];
 char self_data[32][MAXLINE]; // Array of keys for simulating <key value> pairs
+
+pthread_mutex_t mutex;
 
 int main(int argc, char *argv[])
 { 
@@ -130,6 +133,7 @@ void begin_listening(int port) {
   setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (const void*)&optval, sizeof(int));
   printf("Listening on port %d\n", port);
 
+  pthread_mutex_init(&mutex, NULL);
   while(1) {
     clientlen = sizeof(clientaddr); //struct sockaddr_in
 
@@ -140,11 +144,15 @@ void begin_listening(int port) {
     int *args = malloc(sizeof(int));
     args[0] = connfd;
 
+    printf("PORT: %d\n", port);
     pthread_t thread;
+    
     if (pthread_create(&thread, NULL, &receive_client, (void *)args) < 0) {
       printf("receive_client thread error\n");
     }
+    
   }
+  pthread_mutex_destroy(&mutex);
 }
 
 void* receive_client(void *args) {
@@ -167,6 +175,8 @@ void* receive_client(void *args) {
     printf("No request received\n");
   }
   printf("Request: %s\n", request);
+
+  pthread_mutex_lock(&mutex);
 
   /* Check type of connection */
 
@@ -343,6 +353,7 @@ void* receive_client(void *args) {
     printf("Response sent.\n");
   }
 
+  pthread_mutex_unlock(&mutex);
 }
 
 Node parse_incoming_node(rio_t *client) {
@@ -437,15 +448,23 @@ void join_node(char *ip_address, int node_port, int listen_port) {
     } else {
       self_finger_table[i] = query_successor(start_key, fetch_node);
     }
-    // if (i > 0 && fingers[i].key != fingers[i-1].key) {
-    //   update_node(fingers[i]);
-    // }
     product = product * 2;
     printf("finger %d\n", i);
     print_node(self_finger_table[i]);
     println();
   }
 
+  /* update others */
+  product = 1;
+  for (i = 0; i < KEY_SIZE; i++) {
+    Node p = find_predecessor(self_node.key - product);
+    printf("UPDATING %d\n", i);
+    print_node(p);
+    request_update_finger_table(self_node, i, p);
+    product = product * 2;
+  }
+
+  printf("Joining the Chord ring.\n");
   printf("You are listening on port %d\n", self_node.port);
   printf("Your position is %x\n", self_node.key);
   printf("Your predecessor is node %s, port %d, position %x\n", self_predecessor.ip_address, self_predecessor.port, self_predecessor.key);
@@ -464,6 +483,7 @@ Node find_predecessor(uint32_t key) {
   }
   Node n = self_node;
   Node suc = self_successor;
+  sleep(3);
   while (!is_between(key, n.key, suc.key)) {
     n = query_closest_preceding_finger(key, n);
     suc = fetch_successor(n);
@@ -516,6 +536,9 @@ bool is_between(uint32_t key, uint32_t a, uint32_t b) {
 }
 
 Node fetch_successor(Node n) {
+  if (is_equal(n, self_node)) {
+    return self_successor;
+  }
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "fetch_suc");
@@ -523,6 +546,9 @@ Node fetch_successor(Node n) {
 }
 
 Node fetch_predecessor(Node n) {
+  if (is_equal(n, self_node)) {
+    return self_predecessor;
+  }
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "fetch_pre");
@@ -530,6 +556,9 @@ Node fetch_predecessor(Node n) {
 }
 
 Node query_predecessor(uint32_t key, Node n) {
+  if (is_equal(n, self_node)) {
+    return self_predecessor;
+  }
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "query_pre");
@@ -538,6 +567,9 @@ Node query_predecessor(uint32_t key, Node n) {
 }
 
 Node query_successor(uint32_t key, Node n) {
+  if (is_equal(n, self_node)) {
+    return self_successor;
+  }
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "query_suc");
@@ -546,6 +578,9 @@ Node query_successor(uint32_t key, Node n) {
 }
 
 Node query_closest_preceding_finger(uint32_t key, Node n) {
+  if (is_equal(n, self_node)) {
+    return closest_preceding_finger(key);
+  }
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "query_cpf");
@@ -554,6 +589,10 @@ Node query_closest_preceding_finger(uint32_t key, Node n) {
 }
 
 void request_update_successor(Node successor, Node n) {
+  if (is_equal(n, self_node)) {
+    self_successor = successor;
+    return;
+  }
   char request_string[MAXLINE], buf1[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "update_suc\n");
@@ -568,6 +607,10 @@ void request_update_successor(Node successor, Node n) {
 }
 
 void request_update_predecessor(Node predecessor, Node n) {
+  if (is_equal(n, self_node)) {
+    self_predecessor = predecessor;
+    return;
+  }
   char request_string[MAXLINE], buf1[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "update_pre\n");
@@ -582,6 +625,10 @@ void request_update_predecessor(Node predecessor, Node n) {
 }
 
 void request_update_finger_table(Node s, int i, Node n) {
+  if (is_equal(n, self_node)) {
+    self_finger_table[i] = s;
+    return;
+  }
   char request_string[MAXLINE], buf1[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "update_fin\n");
@@ -692,5 +739,12 @@ void print_node(Node n) {
 
 void println() {
   printf("\n");
+}
+
+bool is_equal(Node a, Node b) {
+  if (strcmp(a.ip_address, b.ip_address) == 0 && a.port == b.port) {
+    return true;
+  } 
+  return false;
 }
 
