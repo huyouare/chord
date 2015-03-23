@@ -315,11 +315,11 @@ void* receive_client(void *args) {
     uint32_t index;
     Node s = parse_incoming_node(&client);
 
-    numBytes = Rio_readlineb(client, response, MAXLINE);
+    numBytes = Rio_readlineb(&client, request, MAXLINE);
     if (numBytes <= 0) {
-      printf("No response received\n");
+      printf("No request received\n");
     } else {
-      index = (uint32_t) atoi(response);
+      index = (uint32_t) atoi(request);
     }
 
     update_finger_table(s, index);
@@ -330,30 +330,30 @@ void* receive_client(void *args) {
 
 Node parse_incoming_node(rio_t *client) {
   int numBytes;
-  char response[MAXLINE];
+  char request[MAXLINE];
   Node n;
 
-  numBytes = Rio_readlineb(&client, response, MAXLINE);
+  numBytes = Rio_readlineb(client, request, MAXLINE);
   if (numBytes <= 0) {
-    printf("No response received\n");
+    printf("No request received\n");
   } else {
-    n.key = (uint32_t) atoi(response);
+    n.key = (uint32_t) atoi(request);
   }
-  response[0] = 0;
-  numBytes = Rio_readlineb(&client, response, MAXLINE);
+  request[0] = 0;
+  numBytes = Rio_readlineb(client, request, MAXLINE);
   if (numBytes <= 0) {
-    printf("No response received\n");
+    printf("No request received\n");
   } else {
-    int len = strlen(response);
-    if (len > 0 && response[len-1] == '\n') response[len-1] = '\0';
-    strcpy(n.ip_address, response);
+    int len = strlen(request);
+    if (len > 0 && request[len-1] == '\n') request[len-1] = '\0';
+    strcpy(n.ip_address, request);
   }
-  response[0] = 0;
-  numBytes = Rio_readlineb(&client, response, MAXLINE);
+  request[0] = 0;
+  numBytes = Rio_readlineb(client, request, MAXLINE);
   if (numBytes <= 0) {
-    printf("No response received\n");
+    printf("No request received\n");
   } else {
-    n.port = atoi(response);
+    n.port = atoi(request);
   }
 
   return n;
