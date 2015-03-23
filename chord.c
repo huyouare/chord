@@ -128,10 +128,10 @@ void begin_listening(int port) {
     connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
     printf("Connected to new client, fd: %d\n", connfd);
 
-    pthread_t thread;
     int *args = malloc(sizeof(int));
     args[0] = connfd;
 
+    pthread_t thread;
     if (pthread_create(&thread, NULL, &receive_client, (void *)args) < 0) {
       printf("receive_client thread error\n");
     }
@@ -160,28 +160,6 @@ void* receive_client(void *args) {
   printf("Request: %s\n", request);
 
   /* Check if query or node connection */
-
-  /* new node */
-  // if (strncmp(request, "new", 3) == 0) {
-  //   uint32_t key = 0;
-  //   key = (uint32_t) atoi(request+3);
-  //   printf("Key: %u\n", key);
-
-  //   /* Find out immediate successors/predecessors */
-
-  //   Node fingers[KEY_SIZE];
-  //   /* Lookup fingers of new node */
-  //   int i = 0;
-  //   int product = 1;
-  //   /* n+2^i where i = 0..<m */
-  //   for (i = 0; i < KEY_SIZE; i++) {
-  //     fingers[i] = find_successor( (key + product) % KEY_SPACE );
-  //     if (i > 0 && fingers[i].key != fingers[i-1].key) {
-  //       update_node(fingers[i]);
-  //     }
-  //     product = product * 2;
-  //   }
-  // }
 
   /* fetch node's successor */
   if (strncmp(request, "fetch_suc", 9) == 0) {
