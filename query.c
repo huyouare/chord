@@ -13,6 +13,8 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <openssl/sha.h>
+
 
 #define   FILTER_FILE   "query.filter"
 #define   LOG_FILE      "query.log"
@@ -32,36 +34,10 @@ typedef struct Node
  * function declarations
  *============================================================*/
 
-void initialize_chord(int port);
-void join_node(char *ip_address, int node_port, int listen_port);
-void begin_listening(int port);
-void* receive_client(void *args);
-
-Node find_successor(uint32_t key);
-Node find_predecessor(uint32_t key);
-Node closest_preceding_finger(uint32_t key);
-bool is_between(uint32_t key, uint32_t a, uint32_t b);
-
-void update_successor(Node successor);
-void update_predecessor(Node predecessor);
-void update_finger_table(Node s, int i);
-
-/* Remote functions */
-Node fetch_successor(Node n);
-Node fetch_predecessor(Node n);
-Node query_successor(uint32_t key, Node n);
-Node query_predecessor(uint32_t key, Node n);
-Node query_closest_preceding_finger(uint32_t key, Node n);
-void request_update_successor(Node successor, Node n);
-void request_update_predecessor(Node predecessor, Node n);
-void request_update_finger_table(Node s, int i, Node n);
-Node parse_incoming_node(rio_t *client);
+void initialize_query(char *ip_address, int port);
 
 /* Utility functions */
 uint32_t hash_address(char *ip_address, int port);
-
-Node fetch_query(Node n, char message[]);
-void send_request(Node n, char message[]);
 
 void print_node(Node n);
 void println();
@@ -72,7 +48,7 @@ int main(int argc, char *argv[])
 
   if (argc == 3) {
     listen_port = atoi(argv[2]);
-    join_node(argv[1], listen_port);
+    initialize_query(argv[1], listen_port);
   } else {
     printf("Usage: %s ip_address port\n", argv[0]);
     exit(1);
@@ -110,7 +86,7 @@ void initialize_query(char *ip_address, int port) {
       break;
     }
 
-    char request[MAXLINE] = "search_query"
+    char request[MAXLINE] = "search_query";
 
     unsigned char hash[SHA_DIGEST_LENGTH];
     SHA1(search_key, sizeof(search_key), hash);
