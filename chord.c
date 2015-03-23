@@ -158,7 +158,7 @@ void* receive_client(void *args) {
   }
   printf("Request: %s\n", request);
 
-  /* Check if query or node connection */
+  /* Check type of connection */
 
   /* fetch node's successor */
   if (strncmp(request, "fetch_suc", 9) == 0) {
@@ -303,6 +303,12 @@ void* receive_client(void *args) {
 
     Close(clientfd);
   }
+
+  /* QUERY - ask for data given search_key */
+  if (strncmp(request, "search_query", 12) == 0) {
+    
+  }
+
 }
 
 Node parse_incoming_node(rio_t *client) {
