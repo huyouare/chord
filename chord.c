@@ -199,7 +199,7 @@ void* receive_client(void *args) {
     printf("Handing query_suc\n");
     uint32_t key = 0;
     key = (uint32_t) atoi(request+9);
-    printf("%u\n", key);
+    printf("%x\n", key);
 
     Node successor = find_successor(key);
     print_node(successor);
@@ -223,7 +223,7 @@ void* receive_client(void *args) {
     printf("Handing query_pre\n");
     uint32_t key = 0;
     key = (uint32_t) atoi(request+9);
-    printf("%u\n", key);
+    printf("%x\n", key);
 
     Node predecessor = find_predecessor(key);
     print_node(predecessor);
@@ -247,7 +247,7 @@ void* receive_client(void *args) {
     printf("Handing query_cpf\n");
     uint32_t key = 0;
     key = (uint32_t) atoi(request+9);
-    printf("%u\n", key);
+    printf("%x\n", key);
 
     Node cpf = closest_preceding_finger(key);
     print_node(cpf);
@@ -306,7 +306,7 @@ void* receive_client(void *args) {
 
   /* QUERY - ask for data given search_key */
   if (strncmp(request, "search_query", 12) == 0) {
-    
+
   }
 
 }
@@ -407,9 +407,9 @@ void join_node(char *ip_address, int node_port, int listen_port) {
   }
 
   printf("You are listening on port %d\n", self_node.port);
-  printf("Your position is %u\n", self_node.key);
-  printf("Your predecessor is node %s, port %d, position %u\n", self_predecessor.ip_address, self_predecessor.port, self_predecessor.key);
-  printf("Your successor is node %s, port %d, position %u\n", self_successor.ip_address, self_successor.port, self_successor.key);
+  printf("Your position is %x\n", self_node.key);
+  printf("Your predecessor is node %s, port %d, position %x\n", self_predecessor.ip_address, self_predecessor.port, self_predecessor.key);
+  printf("Your successor is node %s, port %d, position %x\n", self_successor.ip_address, self_successor.port, self_successor.key);
   begin_listening(listen_port);
 }
 
@@ -645,7 +645,7 @@ void send_request(Node n, char message[]) {
 }
 
 void print_node(Node n) {
-  printf("Key: %u\n", n.key);
+  printf("Key: %x\n", n.key);
   printf("IP: %s\n", n.ip_address);
   printf("port: %d\n", n.port);
 }
