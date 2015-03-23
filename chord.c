@@ -48,6 +48,7 @@ bool is_between(uint32_t key, uint32_t a, uint32_t b);
 
 void update_successor(Node successor);
 void update_predecessor(Node predecessor);
+void update_finger_table(Node s, int i);
 
 /* Remote functions */
 Node fetch_successor(Node n);
@@ -58,6 +59,7 @@ Node query_closest_preceding_finger(uint32_t key, Node n);
 void request_update_successor(Node successor, Node n);
 void request_update_predecessor(Node predecessor, Node n);
 void request_update_finger_table(Node s, int i, Node n);
+Node parse_incoming_node(rio_t *client);
 
 /* Utility functions */
 uint32_t hash_address(char *ip_address, int port);
@@ -294,6 +296,7 @@ void* receive_client(void *args) {
     Node n = parse_incoming_node(&client);
     self_successor = n;
     print_node(self_successor);
+    Close(clientfd);
   }
 
   /* update node's predecessor */
@@ -303,15 +306,25 @@ void* receive_client(void *args) {
     Node n = parse_incoming_node(&client);
     self_predecessor = n;
     print_node(self_predecessor);
+    Close(clientfd);
   }
 
   /* update node's finger table (entry) */
-  if (strncmp(request, "update_pre", 10) == 0) {
-    printf("Handing update_pre\n");
+  if (strncmp(request, "update_fin", 10) == 0) {
+    printf("Handing update_fin\n");
+    uint32_t index;
+    Node s = parse_incoming_node(&client);
 
-    Node n = parse_incoming_node(&client);
-    self_predecessor = n;
-    print_node(self_predecessor);
+    numBytes = Rio_readlineb(client, response, MAXLINE);
+    if (numBytes <= 0) {
+      printf("No response received\n");
+    } else {
+      index = (uint32_t) atoi(response);
+    }
+
+    update_finger_table(s, index);
+
+    Close(clientfd);
   }
 }
 
