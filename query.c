@@ -57,51 +57,40 @@ int main(int argc, char *argv[])
 
 void initialize_query(char *ip_address, int port) {
   Node return_node;
-  int sock;
   uint32_t key, hash_value;
-  struct sockaddr_in server_addr;
-  rio_t server;
-  char search_key[MAXLINE];
-
-  if ((sock = socket(AF_INET, SOCK_STREAM/* use tcp */, 0)) < 0) {
-    perror("Create socket error:");
-  }
-
-  server_addr.sin_addr.s_addr = inet_addr(ip_address);
-  server_addr.sin_family = AF_INET;
-  server_addr.sin_port = htons(port);
-
-  if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-    perror("Connect error:");
-  }
 
   key = hash_address(ip_address, port);
-  printf("Connected to node %s, port %d, position %u\n", ip_address, port, key);
+  printf("Connected to node %s, port %d, position %x\n", ip_address, port, key);
   printf("Please enter your search key (or type \"quit\" to leave): \n");
 
   while (1) {
     fflush(stdin);
+
+    search_key[0] = 0;
     gets(search_key);
     if (strncmp(search_key, "quit", 4) == 0) {
       break;
     }
 
     char request[MAXLINE] = "search_query";
+    strcat(request, search_key);
 
     unsigned char hash[SHA_DIGEST_LENGTH];
-    SHA1(search_key, sizeof(search_key), hash);
-    memcpy(&hash_value, hash + 16, sizeof(key));
+    SHA1(search_key, strlen(search_key), hash);
+    memcpy(&hash_value, hash + 16, sizeof(hash_value));
     printf("Hash value is %x\n", hash_value);
 
-    if (send(sock, search_key, MAXLINE,0) < 0) {
+    if (send(sock, request, MAXLINE,0) < 0) {
       perror("Send error:");
     }
     // shutdown(sock, SHUT_WR);
 
-    printf("Response from node %s, port %d, position %u\n", ip_address, port, key);
+    printf("Response from node %s, port %d, position %x\n", ip_address, port, key);
     Rio_readinitb(&server, sock);
     while (Rio_readlineb(&server, request, MAXLINE) > 0) {
-      printf("%s\n", request);
+      if (request[0] != '\0') {
+        printf("%s\n", request);
+      }
     }
   }
 }

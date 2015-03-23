@@ -72,7 +72,7 @@ Node self_node;
 Node self_predecessor;
 Node self_successor;
 Node self_finger_table[KEY_SIZE];
-char *self_data[]; // Array of keys for simulating <key value> pairs
+char self_data[32][MAXLINE]; // Array of keys for simulating <key value> pairs
 
 int main(int argc, char *argv[])
 { 
@@ -107,6 +107,16 @@ void initialize_chord(int port) {
   for (i = 0; i < KEY_SIZE; i++) {
     self_finger_table[i] = self_node;
   }
+
+  /* set data to blank */
+  int size = sizeof(self_data) / sizeof(self_data[0]);
+  for (i = 0; i < size; i++) {
+    self_data[i][0] = 0;
+  }
+
+  /* SAMPLE data for testing query */
+  strcpy(self_data[1], "Gettysburg Address");
+  strcpy(self_data[2], "The Art of Computer Programming");
 
   begin_listening(port);
 }
@@ -306,7 +316,31 @@ void* receive_client(void *args) {
 
   /* QUERY - ask for data given search_key */
   if (strncmp(request, "search_query", 12) == 0) {
+    printf("Handing search_query\n");
 
+    char search_key[MAXLINE], response[MAXLINE];
+    strcpy(search_key, request+12);
+    int size = sizeof(self_data) / sizeof(self_data[0]);
+    bool key_found = false;
+    int i;
+    for (i = 0; i < size; i++) {
+      if (strcmp(self_data[i], search_key) == 0) {
+        key_found = true;
+      }
+    }
+
+    if (key_found) {
+      strcpy(response, "Search key found.");
+    } else {
+      strcpy(response, "Not found.");
+    }
+
+    if (rio_writen(clientfd, response, MAXLINE) < 0) {
+      perror("Send error:");
+    }
+
+    shutdown(clientfd, SHUT_WR);
+    printf("Response sent.\n");
   }
 
 }
@@ -362,13 +396,19 @@ uint32_t hash_address(char *ip_address, int port) {
 /* Join */
 void join_node(char *ip_address, int node_port, int listen_port) {
   uint32_t key = 0;
-  int serverfd;
+  int serverfd, i;
 
   /* Set up local node attributes */
   key = hash_address(LOCAL_IP_ADDRESS, listen_port);
   strcpy(self_node.ip_address, LOCAL_IP_ADDRESS);
   self_node.port = listen_port;
   self_node.key = key;
+
+  /* set data to blank */
+  int size = sizeof(self_data) / sizeof(self_data[0]);
+  for (i = 0; i < size; i++) {
+    self_data[i][0] = 0;
+  }
 
   /* Initialize remote note */
   Node fetch_node;
@@ -387,7 +427,7 @@ void join_node(char *ip_address, int node_port, int listen_port) {
   request_update_predecessor(self_node, self_predecessor);
 
   /* Initialize finger table */
-  int i = 0;
+  i = 0;
   int product = 1;
   /* n+2^i where i = 0..<m */
   for (i = 1; i < KEY_SIZE; i++) {
