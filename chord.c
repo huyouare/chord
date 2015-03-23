@@ -19,10 +19,8 @@
 #define   FILTER_FILE   "chord.filter"
 #define   LOG_FILE      "chord.log"
 #define   DEBUG_FILE    "chord.debug"
-#define   MAX_RING_SIZE 100
 #define   KEY_SIZE      32
 #define   KEY_SPACE     4294967296
-#define   MAX_BACK_LOG  512
 #define   LOCAL_IP_ADDRESS "127.0.0.1" 
 
 typedef struct Node 
@@ -74,6 +72,7 @@ Node self_node;
 Node self_predecessor;
 Node self_successor;
 Node self_finger_table[KEY_SIZE];
+char *self_data[]; // Array of keys for simulating <key value> pairs
 
 int main(int argc, char *argv[])
 { 
@@ -87,7 +86,7 @@ int main(int argc, char *argv[])
     node_port = atoi(argv[3]);
     join_node(argv[2], node_port, listen_port);
   } else {
-    printf("Usage: %s port [nodeAddress nodePort]\n", argv[0]);
+    printf("Usage: %s port [node_ip_address node_port]\n", argv[0]);
     exit(1);
   }
 }
