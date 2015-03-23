@@ -13,16 +13,12 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <openssl/sha.h>
 
-
-#define   FILTER_FILE   "chord.filter"
-#define   LOG_FILE      "chord.log"
-#define   DEBUG_FILE    "chord.debug"
-#define   MAX_RING_SIZE 100
+#define   FILTER_FILE   "query.filter"
+#define   LOG_FILE      "query.log"
+#define   DEBUG_FILE    "query.debug"
 #define   KEY_SIZE      32
 #define   KEY_SPACE     4294967296
-#define   MAX_BACK_LOG  512
 #define   LOCAL_IP_ADDRESS "127.0.0.1" 
 
 typedef struct Node 
@@ -70,46 +66,58 @@ void send_request(Node n, char message[]);
 void print_node(Node n);
 void println();
 
-Node self_node;
-Node self_predecessor;
-Node self_successor;
-Node self_finger_table[KEY_SIZE];
-
 int main(int argc, char *argv[])
 { 
   int listen_port, node_port;
 
-  if (argc == 2) {
-    listen_port = atoi(argv[1]);
-    initialize_chord(listen_port);
-  } else if (argc == 4) {
-    listen_port = atoi(argv[1]);
-    node_port = atoi(argv[3]);
-    join_node(argv[2], node_port, listen_port);
+  if (argc == 3) {
+    listen_port = atoi(argv[2]);
+    join_node(argv[1], listen_port);
   } else {
-    printf("Usage: %s port [nodeAddress nodePort]\n", argv[0]);
+    printf("Usage: %s ip_address port\n", argv[0]);
     exit(1);
   }
 }
 
-void initialize_chord(int port) {
-  printf("Creating new Chord ring...\n");
+void initialize_query(char *ip_address, int port) {
+  Node return_node;
+  int sock, key;
+  struct sockaddr_in server_addr;
+  rio_t server;
+  char search_key[MAXLINE];
 
-  strcpy(self_node.ip_address, LOCAL_IP_ADDRESS);
-  self_node.port = port;
-  self_node.key = hash_address(LOCAL_IP_ADDRESS, port);
-
-  /* Set self to predecessor and successor */
-  self_predecessor = self_node;
-  self_successor = self_node;
-
-  /* Set self for fingers */
-  int i;
-  for (i = 0; i < KEY_SIZE; i++) {
-    self_finger_table[i] = self_node;
+  if ((sock = socket(AF_INET, SOCK_STREAM/* use tcp */, 0)) < 0) {
+    perror("Create socket error:");
   }
 
-  begin_listening(port);
+  server_addr.sin_addr.s_addr = inet_addr(n.ip_address);
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_port = htons(n.port);
+
+  if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+    perror("Connect error:");
+  }
+  key = hash_address(ip_address, port);
+  printf("Connected to node %s, port %d, position %u\n", ip_address, port, key);
+  printf("Please enter your search key (or type \"quit\" to leave): \n");
+
+  while (1) {
+    fflush(stdin);
+    gets(search_key);
+    if (strncmp(search_key, "quit", 4) == 0) {
+      break;
+    }
+
+    if (send(sock, search_key, MAXLINE,0) < 0) {
+      perror("Send error:");
+    }
+    shutdown(sock, SHUT_WR);
+
+    Rio_readinitb(&client, clientfd);
+    while (Rio_readlineb(&client, request, MAXLINE) > 0) {
+      printf("Request: %s\n", request);
+    }
+  }
 }
 
 void begin_listening(int port) {
