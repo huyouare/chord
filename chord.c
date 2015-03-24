@@ -14,6 +14,8 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <openssl/sha.h>
+#include <ifaddrs.h>
+#include <netinet/in.h> 
 
 
 #define   FILTER_FILE   "chord.filter"
@@ -102,6 +104,39 @@ int main(int argc, char *argv[])
   }
 }
 
+void get_local_ip_address() {
+  struct ifaddrs *ifAddrStruct = NULL;
+  struct ifaddrs *ifa = NULL;
+  void *tmpAddrPtr = NULL;
+
+  getifaddrs(&ifAddrStruct);
+
+  for (ifa = ifAddrStruct; ifa != NULL; ifa = ifa->ifa_next) {
+    if (!ifa->ifa_addr) {
+      continue;
+    }
+    if (ifa->ifa_addr->sa_family == AF_INET) { // check it is IP4
+      // is a valid IP4 Address
+      tmpAddrPtr = &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr;
+      char addressBuffer[INET_ADDRSTRLEN];
+      inet_ntop(AF_INET, tmpAddrPtr, addressBuffer, INET_ADDRSTRLEN);
+    } else if (ifa->ifa_addr->sa_family == AF_INET6) { // check it is IP6
+      // is a valid IP6 Address
+      tmpAddrPtr = &((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr;
+      char addressBuffer[INET6_ADDRSTRLEN];
+      inet_ntop(AF_INET6, tmpAddrPtr, addressBuffer, INET6_ADDRSTRLEN);
+    } 
+
+    if (strlen(ifa->ifa_name) > 7) {
+      strcpy(LOCAL_IP_ADDRESS, ifa->ifa_name);
+      break;
+    }
+  }
+  printf("Local IP Address: %s\n", LOCAL_IP_ADDRESS);
+  
+  if (ifAddrStruct!=NULL) freeifaddrs(ifAddrStruct);
+}
+
 void initialize_chord(int port) {
   printf("Creating new Chord ring...\n");
 
@@ -137,6 +172,9 @@ void initialize_chord(int port) {
 
   int *args = malloc(sizeof(int));
   args[0] = port;
+
+  get_local_ip_address();
+
   begin_listening((void *)args);
 }
 
