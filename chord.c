@@ -22,6 +22,7 @@
 #define   KEY_SIZE      32
 #define   KEY_SPACE     4294967296
 #define   LOCAL_IP_ADDRESS "127.0.0.1" 
+#define   KEEP_ALIVE    5 // In seconds
 
 typedef struct Node 
 {
@@ -48,6 +49,8 @@ void update_successor(Node successor);
 void update_predecessor(Node predecessor);
 void update_finger_table(Node s, int i);
 
+void remove_node(Node old, int i, Node replace);
+
 /* Remote functions */
 Node fetch_successor(Node n);
 Node fetch_predecessor(Node n);
@@ -58,6 +61,7 @@ void request_update_successor(Node successor, Node n);
 void request_update_predecessor(Node predecessor, Node n);
 void request_update_finger_table(Node s, int i, Node n);
 Node parse_incoming_node(rio_t *client);
+void request_remove_node(Node old, int i, Node replace, Node n);
 
 /* Utility functions */
 uint32_t hash_address(char *ip_address, int port);
@@ -72,6 +76,7 @@ bool is_equal(Node a, Node b);
 Node self_node;
 Node self_predecessor;
 Node self_successor;
+Ndoe second_successor; // For node leaving replacement
 Node self_finger_table[KEY_SIZE];
 char self_data[32][MAXLINE]; // Array of keys for simulating <key value> pairs
 
@@ -104,6 +109,7 @@ void initialize_chord(int port) {
   /* Set self to predecessor and successor */
   self_predecessor = self_node;
   self_successor = self_node;
+  second_successor = self_node;
 
   /* Set self for fingers */
   int i;
@@ -121,7 +127,53 @@ void initialize_chord(int port) {
   strcpy(self_data[1], "Gettysburg Address");
   strcpy(self_data[2], "The Art of Computer Programming");
 
+  pthread_t thread;
+  if (pthread_create(&thread, NULL, &keep_alive, NULL) < 0) {
+    printf("receive_client thread error\n");
+  }
+
   begin_listening(port);
+}
+
+void keep_alive() {
+  while (1) {
+    /* Send ping to successor*/
+    if (ping(self_successor) == false) {
+      /* successor has left */
+      request_update_predecessor(self_node, second_successor);
+      int product = 1;
+      int i;
+      for (i = 0; i < KEY_SIZE; i++) {
+        Node p = find_predecessor(self_successor.key - product + 1);
+
+      }
+    }
+
+    sleep(5);
+  }
+}
+
+bool ping(Node n) {
+    Node return_node;
+    int sock;
+    struct sockaddr_in server_addr;
+    rio_t server;
+
+    if ((sock = socket(AF_INET, SOCK_STREAM/* use tcp */, 0)) < 0) {
+      perror("Create socket error:");
+    }
+
+    server_addr.sin_addr.s_addr = inet_addr(n.ip_address);
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(n.port);
+
+    if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+      return false;
+    } else {
+      return true;
+      Close(sock);
+    }
+  }
 }
 
 void begin_listening(int port) {
@@ -298,6 +350,7 @@ void* receive_client(void *args) {
     Node n = parse_incoming_node(&client);
     self_successor = n;
     self_finger_table[0] = n;
+    second_successor = fetch_successor(self_successor);
     printf("New successor: \n");
     print_node(self_successor);
     Close(clientfd);
@@ -454,6 +507,7 @@ void join_node(char *ip_address, int node_port, int listen_port) {
   /* Initialize predecessor, successor */
   self_successor = query_successor(key, fetch_node);
   self_finger_table[0] = self_successor;
+  second_successor = fetch_successor(self_successor);
   print_node(self_successor);
   println();
   self_predecessor = fetch_predecessor(self_successor);
@@ -500,36 +554,21 @@ void join_node(char *ip_address, int node_port, int listen_port) {
 
 Node find_successor(uint32_t key) {
   Node n = find_predecessor(key);
-  printf("Call fetch successor from find successor\n");
-  printf("predecessor: \n");
-  print_node(n);
   return fetch_successor(n);
 }
 
 Node find_predecessor(uint32_t key) {
-  printf("self node %u\n", self_node.key);
   if (self_node.key == self_successor.key) {
     return self_node;
   }
   Node n = self_node;
   Node suc = self_successor;
 
-  printf("Finding pred to %u with node: \n", key);
-  print_node(n);
   while (!is_between(key, n.key + 1, suc.key) && key != suc.key) {
-    printf("self node %u\n", self_node.key);
-    printf("n is: %u\n", n.key);
-    printf("suc is: %u\n", suc.key);
-    printf("%u is not between %u and %u\n", key, n.key, suc.key);
-    printf("self node %u\n", self_node.key);
-    printf("Calling cpf on:\n");
-    print_node(n);
     Node n_prime = query_closest_preceding_finger(key, n);
     // if (is_equal(n, n_prime))
     //   break;
     n = n_prime;
-    printf("Result: \n");
-    print_node(n);
     suc = fetch_successor(n);
   }
   return n;
@@ -538,11 +577,7 @@ Node find_predecessor(uint32_t key) {
 Node closest_preceding_finger(uint32_t key) {
   int i;
   for (i = KEY_SIZE - 1; i >= 0; i--) {
-    printf("self node %u\n", self_node.key);
-    printf("index %d\n", i);
     if (is_between(self_finger_table[i].key, self_node.key + 1, key - 1)) {
-      printf("self node %u\n", self_node.key);
-      printf("cpfff %u is between %u and %u \n", self_finger_table[i].key, self_node.key, key);
       return self_finger_table[i];
     }
   }
@@ -565,6 +600,7 @@ void update_finger_table(Node s, int i) {
     self_finger_table[i] = s;
     if (i == 0) {
       self_successor = s;
+      second_successor = fetch_successor(self_successor);
     }
     printf("Finger for index %d is now: \n", i);
     print_node(s);
@@ -573,6 +609,13 @@ void update_finger_table(Node s, int i) {
     if (s.key != p.key) {
       request_update_finger_table(s, i, p);
     }
+  }
+}
+
+void remove_node(Node old, int i, Node replace) {
+  if (is_equal(self_finger_table[i], old)) {
+    self_finger_table[i] = replace;
+    request_remove_node(old, i, replace);
   }
 }
 
@@ -654,6 +697,7 @@ void request_update_successor(Node successor, Node n) {
   if (is_equal(n, self_node)) {
     self_successor = successor;
     self_finger_table[0] = successor;
+    second_successor = fetch_successor(self_successor);
     return;
   }
   char request_string[MAXLINE], buf1[MAXLINE];
@@ -671,7 +715,6 @@ void request_update_successor(Node successor, Node n) {
 
 void request_update_predecessor(Node predecessor, Node n) {
   if (is_equal(n, self_node)) {
-    printf("NOOO\n");
     self_predecessor = predecessor;
     return;
   }
@@ -703,6 +746,34 @@ void request_update_finger_table(Node s, int i, Node n) {
   sprintf(buf1, "%d\n", s.port);
   strcat(request_string, buf1);
   sprintf(buf1, "%d\n", i);
+  strcat(request_string, buf1);
+
+  send_request(n, request_string);
+}
+
+void request_remove_node(Node old, int i, Node replace, Node n) {
+  if (is_equal(n, self_node)) {
+    remove_node(old, i, replace);
+    return;
+  }
+  char request_string[MAXLINE], buf1[MAXLINE];
+  request_string[0] = 0;
+  strcat(request_string, "remove_node\n");
+  sprintf(buf1, "%u\n", old.key);
+  strcat(request_string, buf1);
+  strcat(request_string, old.ip_address);
+  strcat(request_string, "\n");
+  sprintf(buf1, "%d\n", old.port);
+  strcat(request_string, buf1);
+
+  sprintf(buf1, "%d\n", i);
+  strcat(request_string, buf1);
+
+  sprintf(buf1, "%u\n", replace.key);
+  strcat(request_string, buf1);
+  strcat(request_string, replace.ip_address);
+  strcat(request_string, "\n");
+  sprintf(buf1, "%d\n", replace.port);
   strcat(request_string, buf1);
 
   send_request(n, request_string);
