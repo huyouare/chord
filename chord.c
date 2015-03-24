@@ -131,7 +131,10 @@ void begin_listening(int port) {
   listenfd = Open_listenfd(port);
   optval = 1;
   setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (const void*)&optval, sizeof(int));
-  printf("Listening on port %d\n", port);
+  printf("You are listening on port %d\n", port);
+  printf("Your position is %u\n", self_node.key);
+  printf("Your predecessor is node %s, port %d, position %u\n", self_predecessor.ip_address, self_predecessor.port, self_predecessor.key);
+  printf("Your successor is node %s, port %d, position %u\n", self_successor.ip_address, self_successor.port, self_successor.key);
 
   pthread_mutex_init(&mutex, NULL);
   while(1) {
@@ -144,7 +147,6 @@ void begin_listening(int port) {
     int *args = malloc(sizeof(int));
     args[0] = connfd;
 
-    printf("PORT: %d\n", port);
     pthread_t thread;
     
     if (pthread_create(&thread, NULL, &receive_client, (void *)args) < 0) {
@@ -182,7 +184,7 @@ void* receive_client(void *args) {
 
   /* fetch node's successor */
   if (strncmp(request, "fetch_suc", 9) == 0) {
-    printf("Handing fetch_suc\n");
+    printf("Handling fetch_suc\n");
     buf1[0] = 0;
     sprintf(buf1, "%u\n", self_successor.key);
     strcat(buf1, self_successor.ip_address);
@@ -192,6 +194,8 @@ void* receive_client(void *args) {
     if (rio_writen(clientfd, buf1, MAXLINE) < 0) {
       perror("Send error:");
     }
+    print_node(self_successor);
+    printf("%s\n", buf1);
 
     shutdown(clientfd, SHUT_WR);
     printf("Response sent.\n");
@@ -199,7 +203,7 @@ void* receive_client(void *args) {
 
   /* fetch node's predecessor */
   if (strncmp(request, "fetch_pre", 9) == 0) {
-    printf("Handing fetch_pre\n");
+    printf("Handling fetch_pre\n");
     buf1[0] = 0;
     sprintf(buf1, "%u\n", self_predecessor.key);
     strcat(buf1, self_predecessor.ip_address);
@@ -216,10 +220,10 @@ void* receive_client(void *args) {
 
   /* ask node for successor of key */
   if (strncmp(request, "query_suc", 9) == 0) {
-    printf("Handing query_suc\n");
+    printf("Handling query_suc\n");
     uint32_t key = 0;
     key = (uint32_t) atoi(request+9);
-    printf("%x\n", key);
+    printf("%u\n", key);
 
     Node successor = find_successor(key);
     print_node(successor);
@@ -240,10 +244,10 @@ void* receive_client(void *args) {
 
   /* ask node for predecessor of key */
   if (strncmp(request, "query_pre", 9) == 0) {
-    printf("Handing query_pre\n");
+    printf("Handling query_pre\n");
     uint32_t key = 0;
     key = (uint32_t) atoi(request+9);
-    printf("%x\n", key);
+    printf("%u\n", key);
 
     Node predecessor = find_predecessor(key);
     print_node(predecessor);
@@ -264,10 +268,10 @@ void* receive_client(void *args) {
 
   /* ask node for closest preceding finger of key */
   if (strncmp(request, "query_cpf", 9) == 0) {
-    printf("Handing query_cpf\n");
+    printf("Handling query_cpf\n");
     uint32_t key = 0;
     key = (uint32_t) atoi(request+9);
-    printf("%x\n", key);
+    printf("%u\n", key);
 
     Node cpf = closest_preceding_finger(key);
     print_node(cpf);
@@ -288,28 +292,34 @@ void* receive_client(void *args) {
 
   /* update node's successor */
   if (strncmp(request, "update_suc", 10) == 0) {
-    printf("Handing update_suc\n");
+    printf("Handling update_suc\n");
 
     Node n = parse_incoming_node(&client);
     self_successor = n;
+    self_finger_table[0] = n;
+    printf("New successor: \n");
     print_node(self_successor);
     Close(clientfd);
+    printf("Done update_suc\n");
   }
 
   /* update node's predecessor */
   if (strncmp(request, "update_pre", 10) == 0) {
-    printf("Handing update_pre\n");
+    printf("Handling update_pre\n");
 
     Node n = parse_incoming_node(&client);
     self_predecessor = n;
+    printf("New predecessor: \n");
     print_node(self_predecessor);
     Close(clientfd);
+    printf("Done update_pre\n");
   }
 
   /* update node's finger table (entry) */
   if (strncmp(request, "update_fin", 10) == 0) {
-    printf("Handing update_fin\n");
+    printf("Handling update_fin\n");
     uint32_t index;
+
     Node s = parse_incoming_node(&client);
 
     numBytes = Rio_readlineb(&client, request, MAXLINE);
@@ -322,11 +332,12 @@ void* receive_client(void *args) {
     update_finger_table(s, index);
 
     Close(clientfd);
+    printf("Done update_suc\n");
   }
 
   /* QUERY - ask for data given search_key */
   if (strncmp(request, "search_query", 12) == 0) {
-    printf("Handing search_query\n");
+    printf("Handling search_query\n");
 
     char search_key[MAXLINE], response[MAXLINE];
     strcpy(search_key, request+12);
@@ -351,6 +362,16 @@ void* receive_client(void *args) {
 
     shutdown(clientfd, SHUT_WR);
     printf("Response sent.\n");
+  }
+
+  /* Ask for finger table */
+  if (strncmp(request, "print_table", 11) == 0) {
+    printf("Printing self finger table: \n");
+    int i;
+    for (i = 0; i < KEY_SIZE; i++) {
+      print_node(self_finger_table[i]);
+    }
+    printf("Finished printing finger table.\n");
   }
 
   pthread_mutex_unlock(&mutex);
@@ -458,7 +479,6 @@ void join_node(char *ip_address, int node_port, int listen_port) {
   product = 1;
   for (i = 0; i < KEY_SIZE; i++) {
     Node p = find_predecessor(self_node.key - product);
-    printf("UPDATING %d\n", i);
     print_node(p);
     request_update_finger_table(self_node, i, p);
     product = product * 2;
@@ -466,9 +486,9 @@ void join_node(char *ip_address, int node_port, int listen_port) {
 
   printf("Joining the Chord ring.\n");
   printf("You are listening on port %d\n", self_node.port);
-  printf("Your position is %x\n", self_node.key);
-  printf("Your predecessor is node %s, port %d, position %x\n", self_predecessor.ip_address, self_predecessor.port, self_predecessor.key);
-  printf("Your successor is node %s, port %d, position %x\n", self_successor.ip_address, self_successor.port, self_successor.key);
+  printf("Your position is %u\n", self_node.key);
+  printf("Your predecessor is node %s, port %d, position %u\n", self_predecessor.ip_address, self_predecessor.port, self_predecessor.key);
+  printf("Your successor is node %s, port %d, position %u\n", self_successor.ip_address, self_successor.port, self_successor.key);
   begin_listening(listen_port);
 }
 
@@ -483,18 +503,17 @@ Node find_predecessor(uint32_t key) {
   }
   Node n = self_node;
   Node suc = self_successor;
-  sleep(3);
+
   while (!is_between(key, n.key, suc.key)) {
     n = query_closest_preceding_finger(key, n);
     suc = fetch_successor(n);
   }
+  return n;
 }
 
 Node closest_preceding_finger(uint32_t key) {
   int i;
   for (i = KEY_SIZE - 1; i >= 0; i--) {
-    printf("Node %d: \n", i);
-    print_node(self_finger_table[i]);
     if (is_between(key, self_finger_table[i].key, self_node.key)) {
       return self_finger_table[i];
     }
@@ -513,12 +532,23 @@ void update_predecessor(Node predecessor) {
 void update_finger_table(Node s, int i) {
   if (is_between(s.key, self_node.key, self_finger_table[i].key)) {
     self_finger_table[i] = s;
+    if (i == 0) {
+      self_successor = s;
+    }
+    printf("Finger for index %d is now: \n", i);
+    print_node(s);
+    println();
     Node p = self_predecessor;
-    request_update_finger_table(s, i, p);
+    if (!is_equal(p, s)) {
+      request_update_finger_table(s, i, p);
+    }
   }
 }
 
 bool is_between(uint32_t key, uint32_t a, uint32_t b) {
+  if (a == b) {
+    return true;
+  }
   if (a < key) {
     if (b < a) { // wrap around
       return true;
@@ -591,6 +621,7 @@ Node query_closest_preceding_finger(uint32_t key, Node n) {
 void request_update_successor(Node successor, Node n) {
   if (is_equal(n, self_node)) {
     self_successor = successor;
+    self_finger_table[0] = successor;
     return;
   }
   char request_string[MAXLINE], buf1[MAXLINE];
@@ -608,6 +639,7 @@ void request_update_successor(Node successor, Node n) {
 
 void request_update_predecessor(Node predecessor, Node n) {
   if (is_equal(n, self_node)) {
+    printf("NOOO\n");
     self_predecessor = predecessor;
     return;
   }
@@ -732,7 +764,7 @@ void send_request(Node n, char message[]) {
 }
 
 void print_node(Node n) {
-  printf("Key: %x\n", n.key);
+  printf("Key: %u\n", n.key);
   printf("IP: %s\n", n.ip_address);
   printf("port: %d\n", n.port);
 }
