@@ -8,8 +8,7 @@ Run `make`, then create chord ring and nodes. Kill nodes using CTRL-C. Run query
 ####Example:
   
 Terminal 1  
-`make  
-./chord 5432`  
+`make && ./chord 5432`  
   
 Terminal 2  
 `./chord 5400 127.0.0.1 5432` 
