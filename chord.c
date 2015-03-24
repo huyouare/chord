@@ -37,8 +37,11 @@ typedef struct Node
 
 void initialize_chord(int port);
 void join_node(char *ip_address, int node_port, int listen_port);
-void begin_listening(int port);
+void* begin_listening(void *args);
 void* receive_client(void *args);
+
+void keep_alive();
+bool ping(Node n);
 
 Node find_successor(uint32_t key);
 Node find_predecessor(uint32_t key);
@@ -76,7 +79,7 @@ bool is_equal(Node a, Node b);
 Node self_node;
 Node self_predecessor;
 Node self_successor;
-Ndoe second_successor; // For node leaving replacement
+Node second_successor; // For node leaving replacement
 Node self_finger_table[KEY_SIZE];
 char self_data[32][MAXLINE]; // Array of keys for simulating <key value> pairs
 
@@ -132,7 +135,9 @@ void initialize_chord(int port) {
     printf("receive_client thread error\n");
   }
 
-  begin_listening(port);
+  int *args = malloc(sizeof(int));
+  args[0] = port;
+  begin_listening((void *)args);
 }
 
 void keep_alive() {
@@ -140,13 +145,30 @@ void keep_alive() {
     /* Send ping to successor*/
     if (ping(self_successor) == false) {
       /* successor has left */
-      request_update_predecessor(self_node, second_successor);
-      int product = 1;
-      int i;
-      for (i = 0; i < KEY_SIZE; i++) {
-        Node p = find_predecessor(self_successor.key - product + 1);
+      printf("Successor has left. Updating...\n");
 
+      if (is_equal(self_successor, self_predecessor)) {
+        /* Set self to predecessor and successor */
+        self_predecessor = self_node;
+        self_successor = self_node;
+        second_successor = self_node;
+
+        /* Set self for fingers */
+        int i;
+        for (i = 0; i < KEY_SIZE; i++) {
+          self_finger_table[i] = self_node;
+        }
       }
+      else {
+        request_update_predecessor(self_node, second_successor);
+        int product = 1;
+        int i;
+        for (i = 0; i < KEY_SIZE; i++) {
+          Node p = find_predecessor(self_successor.key - product + 1);
+          request_remove_node(self_successor, i, second_successor, p);
+        }
+      }
+      printf("Finished updating all nodes due to successor leaving\n");
     }
 
     sleep(5);
@@ -154,29 +176,39 @@ void keep_alive() {
 }
 
 bool ping(Node n) {
-    Node return_node;
-    int sock;
-    struct sockaddr_in server_addr;
-    rio_t server;
-
-    if ((sock = socket(AF_INET, SOCK_STREAM/* use tcp */, 0)) < 0) {
-      perror("Create socket error:");
-    }
-
-    server_addr.sin_addr.s_addr = inet_addr(n.ip_address);
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(n.port);
-
-    if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-      return false;
-    } else {
-      return true;
-      Close(sock);
-    }
+  if (is_equal(self_node, n)) {
+    return true;
   }
+
+  Node return_node;
+  int sock;
+  struct sockaddr_in server_addr;
+  rio_t server;
+
+  if ((sock = socket(AF_INET, SOCK_STREAM/* use tcp */, 0)) < 0) {
+    perror("Create socket error:");
+  }
+
+  server_addr.sin_addr.s_addr = inet_addr(n.ip_address);
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_port = htons(n.port);
+
+  if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+    Close(sock);
+    return false;
+  } else {
+    char message[MAXLINE];
+    strcpy(message, "ping\n");
+    if (send(sock, message, MAXLINE,0) < 0) {
+      perror("Send error:");
+    }
+    Close(sock);
+    return true;
+  } 
 }
 
-void begin_listening(int port) {
+void* begin_listening(void *args) {
+  int port = ((int*)args)[0];
   int listenfd, connfd, optval, clientlen;
   struct sockaddr_in clientaddr;
 
@@ -386,7 +418,29 @@ void* receive_client(void *args) {
     update_finger_table(s, index);
 
     Close(clientfd);
-    printf("Done update_suc\n");
+    printf("Done update_fin\n");
+  }
+
+  /* Handle remove_node request */
+  if (strncmp(request, "remove_node", 11) == 0) {
+    printf("Handling remove_node\n");
+    uint32_t index;
+
+    Node old = parse_incoming_node(&client);
+
+    numBytes = Rio_readlineb(&client, request, MAXLINE);
+    if (numBytes <= 0) {
+      printf("No request received\n");
+    } else {
+      index = (uint32_t) atoi(request);
+    }
+
+    Node replace = parse_incoming_node(&client);
+
+    remove_node(old, index, replace);
+
+    Close(clientfd);
+    printf("Done remove_node\n");
   }
 
   /* QUERY - ask for data given search_key */
@@ -430,6 +484,12 @@ void* receive_client(void *args) {
     printf("Finished printing finger table.\n");
   }
 
+  /* Received ping. Do nothing */
+  if (strncmp(request, "ping", 4) == 0) {
+    printf("Received ping.\n");
+  }
+
+  Close(clientfd);
   pthread_mutex_unlock(&mutex);
 }
 
@@ -515,6 +575,14 @@ void join_node(char *ip_address, int node_port, int listen_port) {
   println();
   request_update_predecessor(self_node, self_predecessor);
 
+  /* Begin listening */
+  int *args = malloc(sizeof(int));
+  args[0] = listen_port;
+  pthread_t thread;
+  if (pthread_create(&thread, NULL, &begin_listening, (void *)args) < 0) {
+    printf("begin_listening thread error\n");
+  }
+
   /* Initialize finger table */
   i = 0;
   int product = 1;
@@ -549,7 +617,13 @@ void join_node(char *ip_address, int node_port, int listen_port) {
   printf("Your position is %u\n", self_node.key);
   printf("Your predecessor is node %s, port %d, position %u\n", self_predecessor.ip_address, self_predecessor.port, self_predecessor.key);
   printf("Your successor is node %s, port %d, position %u\n", self_successor.ip_address, self_successor.port, self_successor.key);
-  begin_listening(listen_port);
+
+  pthread_t thread2;
+  if (pthread_create(&thread2, NULL, &keep_alive, NULL) < 0) {
+    printf("receive_client thread error\n");
+  }
+
+  pthread_join(thread, NULL);
 }
 
 Node find_successor(uint32_t key) {
@@ -615,7 +689,11 @@ void update_finger_table(Node s, int i) {
 void remove_node(Node old, int i, Node replace) {
   if (is_equal(self_finger_table[i], old)) {
     self_finger_table[i] = replace;
-    request_remove_node(old, i, replace);
+    if (i == 0) {
+      self_successor = replace;
+      second_successor = fetch_successor(self_successor);
+    }
+    request_remove_node(old, i, replace, self_predecessor);
   }
 }
 
