@@ -178,7 +178,7 @@ void* receive_client(void *args) {
   }
   printf("Request: %s\n", request);
 
-  pthread_mutex_lock(&mutex);
+  // pthread_mutex_lock(&mutex);
 
   /* Check type of connection */
 
@@ -214,6 +214,7 @@ void* receive_client(void *args) {
       perror("Send error:");
     }
 
+    printf("Result: \n");
     shutdown(clientfd, SHUT_WR);
     printf("Response sent.\n");
   }
@@ -369,12 +370,14 @@ void* receive_client(void *args) {
     printf("Printing self finger table: \n");
     int i;
     for (i = 0; i < KEY_SIZE; i++) {
+      printf("Finger %d: \n", i);
       print_node(self_finger_table[i]);
+      println();
     }
     printf("Finished printing finger table.\n");
   }
 
-  pthread_mutex_unlock(&mutex);
+  // pthread_mutex_unlock(&mutex);
 }
 
 Node parse_incoming_node(rio_t *client) {
@@ -494,18 +497,36 @@ void join_node(char *ip_address, int node_port, int listen_port) {
 
 Node find_successor(uint32_t key) {
   Node n = find_predecessor(key);
+  printf("Call fetch successor from find successor\n");
+  printf("predecessor: \n");
+  print_node(n);
   return fetch_successor(n);
 }
 
 Node find_predecessor(uint32_t key) {
+  printf("self node %u\n", self_node.key);
   if (self_node.key == self_successor.key) {
     return self_node;
   }
   Node n = self_node;
   Node suc = self_successor;
 
-  while (!is_between(key, n.key, suc.key)) {
-    n = query_closest_preceding_finger(key, n);
+  printf("Finding pred to %u with node: \n", key);
+  print_node(n);
+  while (!is_between(key, n.key, suc.key) && key != suc.key) {
+    printf("self node %u\n", self_node.key);
+    printf("n is: %u\n", n.key);
+    printf("suc is: %u\n", suc.key);
+    printf("%u is not between %u and %u\n", key, n.key, suc.key);
+    printf("self node %u\n", self_node.key);
+    printf("Calling cpf on:\n");
+    print_node(n);
+    Node n_prime = query_closest_preceding_finger(key, n);
+    if (is_equal(n, n_prime))
+      break;
+    n = n_prime;
+    printf("Result: \n");
+    print_node(n);
     suc = fetch_successor(n);
   }
   return n;
@@ -514,7 +535,11 @@ Node find_predecessor(uint32_t key) {
 Node closest_preceding_finger(uint32_t key) {
   int i;
   for (i = KEY_SIZE - 1; i >= 0; i--) {
+    printf("self node %u\n", self_node.key);
+    printf("index %d\n", i);
     if (is_between(key, self_finger_table[i].key, self_node.key)) {
+      printf("self node %u\n", self_node.key);
+      printf("cpfff %u is between %u and %u \n", key, self_finger_table[i].key, self_node.key);
       return self_finger_table[i];
     }
   }
@@ -546,18 +571,25 @@ void update_finger_table(Node s, int i) {
 }
 
 bool is_between(uint32_t key, uint32_t a, uint32_t b) {
+  printf("%u key\n", key);
+  printf("%u a\n", a);
+  printf("%u b\n", b);
   if (a == b) {
     return true;
   }
   if (a < key) {
+    printf("a < key\n");
     if (b < a) { // wrap around
+      printf("b < a\n");
       return true;
     } else {
       if (key < b) {
+        printf("key < b\n");
         return true;
       }
     }
   } else {
+    printf("a >= key\n");
     if (key < b && b < a) {
       return true;
     }
@@ -569,9 +601,13 @@ Node fetch_successor(Node n) {
   if (is_equal(n, self_node)) {
     return self_successor;
   }
+  print_node(n);
+  printf("not equal to self \n");
+  print_node(self_node);
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "fetch_suc");
+  printf("calling fetch on first node \n");
   return fetch_query(n, request_string);
 }
 

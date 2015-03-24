@@ -117,7 +117,9 @@ void handle_options(char *ip_address, int port, char *option) {
     print_node(return_node);
   }
   if (strncmp(option, "print_table", 11) == 0) {
-    send_request(n, option);
+    char request[MAXLINE];
+    strcpy(request, option);
+    send_request(n, request);
   }
 }
 
@@ -397,7 +399,7 @@ void send_request(Node n, char message[]) {
 }
 
 void print_node(Node n) {
-  printf("Key: %x\n", n.key);
+  printf("Key: %u\n", n.key);
   printf("IP: %s\n", n.ip_address);
   printf("port: %d\n", n.port);
 }
