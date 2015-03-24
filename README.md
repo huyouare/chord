@@ -6,17 +6,17 @@ based on http://pdos.csail.mit.edu/papers/chord:sigcomm01/chord_sigcomm.pdf and 
 Run `make`, then create chord ring and nodes. Kill nodes using CTRL-C. Run query commands.
 
 Example:
-
-Terminal 1
-`make
-./chord 5432`
-Terminal 2
-`./chord 5400 127.0.0.1 5432`
-Terminal 3
-`./chord 5300 127.0.0.1 5432'
-Terminal 4
-`./query 127.0.0.1 5432
-Harry Potter
+  
+Terminal 1  
+`make  
+./chord 5432`  
+Terminal 2  
+`./chord 5400 127.0.0.1 5432`  
+Terminal 3  
+`./chord 5300 127.0.0.1 5432`  
+Terminal 4  
+`./query 127.0.0.1 5432  
+Harry Potter  
 Gettysburg Address
 The Art of Computer Programming
 quit
