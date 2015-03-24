@@ -10,10 +10,13 @@ Run `make`, then create chord ring and nodes. Kill nodes using CTRL-C. Run query
 Terminal 1  
 `make  
 ./chord 5432`  
+  
 Terminal 2  
-`./chord 5400 127.0.0.1 5432`  
+`./chord 5400 127.0.0.1 5432` 
+   
 Terminal 3  
-`./chord 5300 127.0.0.1 5432`  
+`./chord 5300 127.0.0.1 5432` 
+   
 Terminal 4  
 `./query 127.0.0.1 5432  
 Harry Potter  
@@ -23,10 +26,13 @@ quit
 ./query 127.0.0.1 5432 fetch_pre  
 ./query 127.0.0.1 5400 fetch_suc  
 ./query 127.0.0.1 5300 print_table`  
+  
 Terminal 2  
 CTRL-C  
+  
 Terminal 3  
 CTRL-C  
+  
 Terminal 4  
 `./query 127.0.0.1 5432 fetch_suc  
 ./query 127.0.0.1 5432 fetch_pre'  
