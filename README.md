@@ -34,4 +34,4 @@ CTRL-C
   
 Terminal 4  
 `./query 127.0.0.1 5432 fetch_suc  
-./query 127.0.0.1 5432 fetch_pre'  
+./query 127.0.0.1 5432 fetch_pre`  
