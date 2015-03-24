@@ -178,7 +178,7 @@ void* receive_client(void *args) {
   }
   printf("Request: %s\n", request);
 
-  // pthread_mutex_lock(&mutex);
+  pthread_mutex_lock(&mutex);
 
   /* Check type of connection */
 
@@ -377,7 +377,7 @@ void* receive_client(void *args) {
     printf("Finished printing finger table.\n");
   }
 
-  // pthread_mutex_unlock(&mutex);
+  pthread_mutex_unlock(&mutex);
 }
 
 Node parse_incoming_node(rio_t *client) {
@@ -467,10 +467,13 @@ void join_node(char *ip_address, int node_port, int listen_port) {
   /* n+2^i where i = 0..<m */
   for (i = 1; i < KEY_SIZE; i++) {
     uint32_t start_key = (key + product) % KEY_SPACE;
-    if (is_between(start_key, self_node.key, self_finger_table[i-1].key)) {
+    if (is_between(start_key, self_node.key, self_finger_table[i-1].key - 1)) {
       self_finger_table[i] = self_finger_table[i-1];
     } else {
       self_finger_table[i] = query_successor(start_key, fetch_node);
+      if (!is_between(self_finger_table[i].key, start_key, self_node.key)) {
+        self_finger_table[i] = self_node;
+      }
     }
     product = product * 2;
     printf("finger %d\n", i);
@@ -513,7 +516,7 @@ Node find_predecessor(uint32_t key) {
 
   printf("Finding pred to %u with node: \n", key);
   print_node(n);
-  while (!is_between(key, n.key, suc.key) && key != suc.key) {
+  while (!is_between(key, n.key + 1, suc.key) && key != suc.key) {
     printf("self node %u\n", self_node.key);
     printf("n is: %u\n", n.key);
     printf("suc is: %u\n", suc.key);
@@ -522,8 +525,8 @@ Node find_predecessor(uint32_t key) {
     printf("Calling cpf on:\n");
     print_node(n);
     Node n_prime = query_closest_preceding_finger(key, n);
-    if (is_equal(n, n_prime))
-      break;
+    // if (is_equal(n, n_prime))
+    //   break;
     n = n_prime;
     printf("Result: \n");
     print_node(n);
@@ -537,9 +540,9 @@ Node closest_preceding_finger(uint32_t key) {
   for (i = KEY_SIZE - 1; i >= 0; i--) {
     printf("self node %u\n", self_node.key);
     printf("index %d\n", i);
-    if (is_between(key, self_finger_table[i].key, self_node.key)) {
+    if (is_between(self_finger_table[i].key, self_node.key + 1, key - 1)) {
       printf("self node %u\n", self_node.key);
-      printf("cpfff %u is between %u and %u \n", key, self_finger_table[i].key, self_node.key);
+      printf("cpfff %u is between %u and %u \n", self_finger_table[i].key, self_node.key, key);
       return self_finger_table[i];
     }
   }
@@ -555,7 +558,10 @@ void update_predecessor(Node predecessor) {
 }
 
 void update_finger_table(Node s, int i) {
-  if (is_between(s.key, self_node.key, self_finger_table[i].key)) {
+  if (s.key == self_node.key) {
+    return;
+  }
+  if (is_between(s.key, self_node.key + 1, self_finger_table[i].key)) {
     self_finger_table[i] = s;
     if (i == 0) {
       self_successor = s;
@@ -564,32 +570,26 @@ void update_finger_table(Node s, int i) {
     print_node(s);
     println();
     Node p = self_predecessor;
-    if (!is_equal(p, s)) {
+    if (s.key != p.key) {
       request_update_finger_table(s, i, p);
     }
   }
 }
 
+/* inclusive! */
 bool is_between(uint32_t key, uint32_t a, uint32_t b) {
-  printf("%u key\n", key);
-  printf("%u a\n", a);
-  printf("%u b\n", b);
-  if (a == b) {
+  if (key == a || key == b || a == b) {
     return true;
   }
   if (a < key) {
-    printf("a < key\n");
     if (b < a) { // wrap around
-      printf("b < a\n");
       return true;
     } else {
       if (key < b) {
-        printf("key < b\n");
         return true;
       }
     }
   } else {
-    printf("a >= key\n");
     if (key < b && b < a) {
       return true;
     }
@@ -601,13 +601,9 @@ Node fetch_successor(Node n) {
   if (is_equal(n, self_node)) {
     return self_successor;
   }
-  print_node(n);
-  printf("not equal to self \n");
-  print_node(self_node);
   char request_string[MAXLINE];
   request_string[0] = 0;
   strcat(request_string, "fetch_suc");
-  printf("calling fetch on first node \n");
   return fetch_query(n, request_string);
 }
 
@@ -738,7 +734,7 @@ Node fetch_query(Node n, char message[]) {
   if (send(sock, message, MAXLINE,0) < 0) {
     perror("Send error:");
   }
-  shutdown(sock, SHUT_WR);
+  // shutdown(sock, SHUT_WR);
 
   Rio_readinitb(&server, sock);
   numBytes = Rio_readlineb(&server, response, MAXLINE);
@@ -775,6 +771,9 @@ void send_request(Node n, char message[]) {
   int sock;
   struct sockaddr_in server_addr;
   rio_t server;
+
+  printf("sending to:\n");
+  print_node(n);
 
   if ((sock = socket(AF_INET, SOCK_STREAM/* use tcp */, 0)) < 0) {
     perror("Create socket error:");
